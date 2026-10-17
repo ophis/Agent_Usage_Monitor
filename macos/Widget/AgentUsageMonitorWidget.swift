@@ -126,7 +126,7 @@ struct AccountList: View {
         }
     }
 
-    private var titleWidth: CGFloat { width * (compact ? 0.2 : 0.34) }
+    private var titleWidth: CGFloat { width * (compact ? 0.18 : 0.34) }
     /// Compact: the 5H and the 7D column, each a bar with its reset under its right end.
     private var slot: CGFloat { (width - titleWidth - 16) / 2 }
 
@@ -199,12 +199,14 @@ struct BarRow: View {
                     .frame(height: height)
                     .frame(maxHeight: .infinity)
             }
-            // Always reserved, so bars line up whether or not the glyph shows.
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.caption)
-                .foregroundStyle(.red)
-                .opacity(bar.level == .critical ? 1 : 0)
-                .frame(width: compact ? 12 : 14)
+            // Always reserved, so bars line up whether or not the glyph shows. Medium has none: its space goes to the bar.
+            if !compact {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .opacity(bar.level == .critical ? 1 : 0)
+                    .frame(width: 14)
+            }
             // The hidden widest value keeps every bar the same length.
             ZStack(alignment: .trailing) {
                 Text("100%").hidden()
