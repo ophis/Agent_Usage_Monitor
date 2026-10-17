@@ -57,7 +57,7 @@ The widget is a dark card with one group per account, grouped by client ([accoun
 
 ## Alerts
 
-Each host run (every 5 minutes and on a widget click) runs `collect --emit-alerts`. Under the same lock as the snapshot write, `collect` decides the alerts from the snapshot and prints each as an `AUM-ALERT {"text": …}` line; the host posts them as notifications titled Agent Usage Monitor, then passes the lines macOS took to `record-alerts`. Without `--emit-alerts`, `collect` decides no alerts and prints nothing.
+Each host run (every 5 minutes and on a widget click) runs `collect --emit-alerts`. Under the same lock as the snapshot write, `collect` decides the alerts from the snapshot and prints each as an `AUM-ALERT {"text": …, "add": […], "remove": […]}` line, where `add` and `remove` are the `notified` entries the alert records and clears; the host posts them as notifications titled Agent Usage Monitor, then passes the lines macOS took to `record-alerts`, which makes those changes. Without `--emit-alerts`, `collect` decides no alerts and prints nothing.
 
 - `<client> · <account> <5h|7d> 已到 <x>%，<reset> 重置`: a limit is at or above `threshold` ([account list](#account-list)). `<account>` is the account's `account`, else its `name`; `<reset>` is the local reset time, with the date when it is not today; with no reset time the clause reads `重置时间未知`.
 - `<client> · <account> 现在可用`: an account that had such an alert is available again, after that limit's reset or, with no reset time known, once it is below `threshold`.

@@ -30,6 +30,11 @@ class ReadmeTest(unittest.TestCase):
         self.assertIn("No notifications?", alerts)
         self.assertIn("kept for the next run", alerts)
 
+    def test_alert_line_format(self):
+        alerts = self.section("Alerts")
+        self.assertIn('`AUM-ALERT {"text": …, "add": […], "remove": […]}`', alerts)
+        self.assertNotIn('`AUM-ALERT {"text": …}`', alerts)
+
     def test_step1_conclusion(self):
         spike = self.section("Spike conclusions")
         self.assertIn("**TASK-638**", spike)
