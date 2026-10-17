@@ -83,10 +83,13 @@ def scan_binary(data):
 
 
 def scan_blob(name, data, allow):
-    """Hit lines `name:line: rule`; a file holding a NUL byte is binary and checked for metadata only."""
-    if b"\0" in data:
+    """Hit lines `name:line: rule`. A PNG is checked for metadata only; any other file holding a NUL byte
+    is binary: checked for metadata, then by the text rules with its NUL bytes removed."""
+    if data.startswith(PNG):
         return ["%s: %s" % (name, rule) for rule in scan_binary(data)]
-    return ["%s:%d: %s" % (name, n, rule) for n, rule in scan_text(data.decode("utf-8", "replace"), allow)]
+    hits = ["%s: %s" % (name, rule) for rule in scan_binary(data)] if b"\0" in data else []
+    text = data.replace(b"\0", b"").decode("utf-8", "replace")
+    return hits + ["%s:%d: %s" % (name, n, rule) for n, rule in scan_text(text, allow)]
 
 
 def git(*args):

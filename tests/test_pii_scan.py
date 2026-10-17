@@ -83,6 +83,15 @@ class BinaryRulesTest(unittest.TestCase):
         self.assertEqual(pii_scan.scan_binary(b"\0\0<x:xmpmeta xmlns:x='adobe:ns:meta/'>"), ["metadata"])
         self.assertEqual(pii_scan.scan_binary(b"\0\x01\x02plain"), [])
 
+    def test_non_png_binary_runs_text_rules_without_nul_bytes(self):
+        self.assertEqual(pii_scan.scan_blob("a.bin", b"\0\x01by " + EMAIL.encode(), []), ["a.bin:1: email"])
+        self.assertEqual(pii_scan.scan_blob("a.txt", "\0".join(HOME + "/x").encode(), []), ["a.txt:1: home-path"])
+        self.assertEqual(pii_scan.scan_blob("a.jpg", b"\xff\xd8Exif\0\0 " + UUID.encode(), []),
+                         ["a.jpg: metadata", "a.jpg:1: uuid"])
+
+    def test_png_gets_no_text_rules(self):
+        self.assertEqual(pii_scan.scan_blob("a.png", png((b"IDAT", EMAIL.encode())), []), [])
+
 
 class AllowlistTest(unittest.TestCase):
     def setUp(self):
