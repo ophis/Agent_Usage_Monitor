@@ -2,7 +2,7 @@
 
 A macOS desktop widget that shows, for every Claude Code and Codex account on one Mac, the 5-hour and 7-day usage limits, when they reset, and whether the account is usable right now. Pick an account before you start work without opening each one.
 
-![Medium and large Agent Usage Monitor widgets: each account's name with 5H and 7D usage bars, percent and reset time (`resets: 2h 9m`), side by side on one line in the medium widget and stacked in the large one, red from 90% with a warning triangle in the large one](docs/images/widget-demo.png)
+![Medium and large Agent Usage Monitor widgets: each account's name with 5H and 7D usage bars, percent and reset time (`resets: 2h 9m`), in the medium widget the 5H and 7D bars side by side, with the account and reset times on a second line; in the large one stacked, red from 90% with a warning triangle in the large one](docs/images/widget-demo.png)
 
 > **Status:** in development (milestone M2). Installable: the widget shows every Codex and Claude account, and macOS notifications tell you when a limit is nearly used up or an account is usable again.
 
