@@ -75,16 +75,7 @@ The repo is public, so personal data is caught before a push: after `make hooks`
 
 `collect` reads the account list `~/.config/agent-usage-monitor/accounts.json` (honors `XDG_CONFIG_HOME`). Without it, the accounts are `~/.claude` (`claude`) and `~/.codex` (`codex`), whichever exist. The snapshot and the widget list accounts by client, Claude then Codex, in file order within each; `threshold` (default 90) is the percent at which an account counts as not available. `name` identifies an account and must be unique; the optional `account`, a non-empty string such as the login email, is only shown in the widget and may repeat across accounts.
 
-```json
-{
-  "threshold": 90,
-  "accounts": [
-    {"name": "claude", "client": "claude", "dir": "~/.claude", "account": "you@example.com"},
-    {"name": "claude-work", "client": "claude", "dir": "~/.claude-work", "account": "work@example.com"},
-    {"name": "codex", "client": "codex", "dir": "~/.codex", "account": "you@example.com"}
-  ]
-}
-```
+To write one, copy [`accounts.example.json`](accounts.example.json) (two Claude accounts, one Codex account) to `~/.config/agent-usage-monitor/accounts.json`, then edit it: set each `dir` to an existing account directory and `account` to your own; drop `account` to show none. JSON has no comments, so the fields are explained here only.
 
 It writes `~/.local/state/agent-usage-monitor/snapshot.json`. Codex limits come from `codex app-server` ([protocol notes](docs/codex-app-server.md)).
 
