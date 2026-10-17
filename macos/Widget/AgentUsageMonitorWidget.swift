@@ -1,0 +1,196 @@
+import OSLog
+import SwiftUI
+import WidgetKit
+
+private let log = Logger(subsystem: "com.ophis.agent-usage-monitor", category: "widget")
+
+struct Entry: TimelineEntry {
+    let date: Date
+    let rows: [DisplayRow]?
+}
+
+struct Provider: TimelineProvider {
+    func placeholder(in context: Context) -> Entry {
+        Entry(date: Date(), rows: nil)
+    }
+
+    func getSnapshot(in context: Context, completion: @escaping (Entry) -> Void) {
+        completion(entry())
+    }
+
+    // FR-28: one entry, next refresh 5 minutes from now.
+    func getTimeline(in context: Context, completion: @escaping (Timeline<Entry>) -> Void) {
+        let e = entry()
+        completion(Timeline(entries: [e], policy: .after(e.date.addingTimeInterval(300))))
+    }
+
+    private func entry() -> Entry {
+        // In the sandbox NSHomeDirectory() is the container; the exception is relative to the real home.
+        let home = String(cString: getpwuid(getuid())!.pointee.pw_dir)
+        let path = home + "/.local/state/agent-usage-monitor/snapshot.json"
+        let now = Date()
+        guard let snapshot = loadSnapshot(path: path) else {
+            log.error("no snapshot at \(path, privacy: .public)")
+            return Entry(date: now, rows: nil)
+        }
+        return Entry(date: now, rows: content(snapshot, now: Int(now.timeIntervalSince1970)))
+    }
+}
+
+struct AgentUsageMonitorView: View {
+    let entry: Entry
+    // The system appearance: the forced .dark below applies only to the content.
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        // No widgetURL or Link: a tap anywhere opens the host app (FR-28).
+        Group {
+            if let rows = entry.rows {
+                // The accounts that fit the real content height, so the size is measured, not assumed per family.
+                GeometryReader { g in
+                    AccountList(display: fit(rows, height: g.size.height), width: g.size.width)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Agent Usage Monitor：没有数据").font(.headline)
+                    Text("点这里刷新").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .containerBackground(for: .widget) { CardBackground(systemDark: scheme == .dark) }
+        .environment(\.colorScheme, .dark)
+    }
+}
+
+/// On the desktop a material follows the system appearance and ignores the forced dark scheme,
+/// so a light system gets an opaque dark card instead.
+struct CardBackground: View {
+    let systemDark: Bool
+
+    var body: some View {
+        if systemDark { Rectangle().fill(.thinMaterial) } else { Color(white: 0.11) }
+    }
+}
+
+struct AccountList: View {
+    let display: Display
+    let width: CGFloat
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(display.rows.indices, id: \.self) { i in
+                if i > 0 { Divider().frame(height: Metrics.divider) }
+                let row = display.rows[i]
+                if row.bars.isEmpty {
+                    title(row.title).frame(height: Metrics.row)
+                }
+                ForEach(row.bars.indices, id: \.self) { j in
+                    let bar = row.bars[j]
+                    HStack(spacing: 8) {
+                        title(j == 0 ? row.title : "")
+                        BarRow(bar: bar, client: row.client)
+                    }
+                    .frame(height: Metrics.row)
+                    if let reset = bar.reset {
+                        HStack(spacing: 8) {
+                            if j == row.accountBar, let account = row.account { small(account) }
+                            Spacer(minLength: 0)
+                            small(reset).fixedSize()
+                        }
+                        .frame(height: Metrics.reset, alignment: .top)
+                    }
+                }
+                if row.accountLine, let account = row.account {
+                    small(account).frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(height: Metrics.reset, alignment: .top)
+                }
+            }
+            if display.more > 0, let last = display.rows.last {
+                Color.clear.frame(height: moreRoom(last))
+            }
+        }
+        .overlay(alignment: .bottomLeading) {
+            if display.more > 0 {
+                Text("+\(display.more)").font(.caption).foregroundStyle(.secondary)
+                    .frame(height: Metrics.more, alignment: .bottomLeading)
+            }
+        }
+    }
+
+    private func title(_ s: String) -> some View {
+        // The same size as the percent: who first, then the number.
+        Text(s).font(.system(size: 15, weight: .bold)).lineLimit(1).truncationMode(.tail)
+            .frame(width: width * 0.34, alignment: .leading)
+    }
+
+    /// The reset time and the account: gray caption, a long account loses its tail.
+    private func small(_ s: String) -> some View {
+        Text(s).font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+    }
+}
+
+struct BarRow: View {
+    let bar: Bar
+    let client: String?
+    @Environment(\.widgetRenderingMode) private var mode
+
+    private let height = 10.0
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(bar.label)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(.quaternary, in: Capsule())
+            GeometryReader { g in
+                Capsule().fill(.quaternary)
+                    .overlay(alignment: .leading) {
+                        Capsule().fill(fill)
+                            .frame(width: fillWidth(percent: bar.percent, track: g.size.width, height: height))
+                    }
+                    .frame(height: height)
+                    .frame(maxHeight: .infinity)
+            }
+            // Always reserved, so bars line up whether or not the glyph shows.
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(.red)
+                .opacity(bar.level == .critical ? 1 : 0)
+                .frame(width: 14)
+            // The hidden widest value keeps every bar the same length.
+            ZStack(alignment: .trailing) {
+                Text("100%").hidden()
+                Text(bar.text).foregroundStyle(bar.percent == nil ? .secondary : .primary)
+            }
+            .font(.system(size: 15, weight: .bold, design: .rounded).monospacedDigit())
+            .fixedSize()
+        }
+    }
+
+    private var fill: AnyShapeStyle {
+        if mode != .fullColor {
+            return bar.level == .warn || bar.level == .critical ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary)
+        }
+        switch hue(client: client, level: bar.level) {
+        case .teal?: return AnyShapeStyle(Color.teal)
+        case .periwinkle?: return AnyShapeStyle(Color(red: 0x8E / 255, green: 0x8C / 255, blue: 0xFF / 255))
+        case .gray?: return AnyShapeStyle(Color.gray)
+        case .yellow?: return AnyShapeStyle(Color.yellow)
+        case .red?: return AnyShapeStyle(Color.red)
+        case nil: return AnyShapeStyle(Color.clear)
+        }
+    }
+}
+
+@main
+struct AgentUsageMonitorWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "AgentUsageMonitor", provider: Provider()) { AgentUsageMonitorView(entry: $0) }
+            .configurationDisplayName("Agent Usage Monitor")
+            .description("Claude Code and Codex usage per account")
+            .supportedFamilies([.systemMedium, .systemLarge])
+    }
+}
