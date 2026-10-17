@@ -15,16 +15,16 @@ struct Provider: TimelineProvider {
     }
 
     func getSnapshot(in context: Context, completion: @escaping (Entry) -> Void) {
-        completion(entry(compact: context.family == .systemMedium))
+        completion(entry())
     }
 
     // FR-28: one entry, next refresh 5 minutes from now.
     func getTimeline(in context: Context, completion: @escaping (Timeline<Entry>) -> Void) {
-        let e = entry(compact: context.family == .systemMedium)
+        let e = entry()
         completion(Timeline(entries: [e], policy: .after(e.date.addingTimeInterval(300))))
     }
 
-    private func entry(compact: Bool) -> Entry {
+    private func entry() -> Entry {
         // In the sandbox NSHomeDirectory() is the container; the exception is relative to the real home.
         let home = String(cString: getpwuid(getuid())!.pointee.pw_dir)
         let path = home + "/.local/state/agent-usage-monitor/snapshot.json"
@@ -34,7 +34,7 @@ struct Provider: TimelineProvider {
             log.error("no snapshot at ~/.local/state/agent-usage-monitor/snapshot.json")
             return Entry(date: now, rows: nil)
         }
-        return Entry(date: now, rows: content(snapshot, now: Int(now.timeIntervalSince1970), compact: compact))
+        return Entry(date: now, rows: content(snapshot, now: Int(now.timeIntervalSince1970)))
     }
 }
 

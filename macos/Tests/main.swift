@@ -41,32 +41,19 @@ check("zero_accounts", show([]), [])
 
 // reset_lines: from resets_at and the entry date; none when null or not in the future
 check("reset_lines", show([row("claude", five: 4, seven: 9, available: true, resets: (t + 3 * 3600 + 42 * 60, t))])[0].bars,
-      [Bar(label: "5H", percent: 4, reset: "resets in 3h 42m"), Bar(label: "7D", percent: 9, reset: nil)])
+      [Bar(label: "5H", percent: 4, reset: "resets: 3h 42m"), Bar(label: "7D", percent: 9, reset: nil)])
 
-// reset_text
-for (s, want) in [(1, "resets in 1m"), (59, "resets in 1m"), (60, "resets in 1m"), (12 * 60 + 59, "resets in 12m"),
-                  (3599, "resets in 59m"), (3600, "resets in 1h 0m"), (3 * 3600 + 42 * 60, "resets in 3h 42m"),
-                  (86399, "resets in 23h 59m"), (86400, "resets in 1d 0h"), (6 * 86400 + 3 * 3600 + 59, "resets in 6d 3h")] {
+// reset_text: days, hours and minutes, leading zero units left out
+for (s, want) in [(1, "resets: 1m"), (59, "resets: 1m"), (60, "resets: 1m"), (12 * 60 + 59, "resets: 12m"),
+                  (38 * 60 + 59, "resets: 38m"), (3599, "resets: 59m"), (3600, "resets: 1h 0m"),
+                  (2 * 3600 + 9 * 60, "resets: 2h 9m"), (3 * 3600 + 42 * 60, "resets: 3h 42m"), (86399, "resets: 23h 59m"),
+                  (86400, "resets: 1d 0h 0m"), (6 * 86400 + 5 * 60, "resets: 6d 0h 5m"),
+                  (6 * 86400 + 3600 + 60, "resets: 6d 1h 1m"), (6 * 86400 + 3 * 3600 + 59, "resets: 6d 3h 0m")] {
     check("reset_text \(s)", resetText(t + s, now: t), want)
 }
 for (at, name) in [(nil, "nil"), (t, "now"), (t - 60, "past")] as [(Int?, String)] {
     check("reset_text \(name)", resetText(at, now: t), nil)
-    check("compact_reset_text \(name)", compactResetText(at, now: t), nil)
 }
-
-// compact_reset_text (medium): days, hours and minutes, leading zero units left out
-for (s, want) in [(1, "resets: 1m"), (38 * 60 + 59, "resets: 38m"), (3600, "resets: 1h 0m"), (2 * 3600 + 9 * 60, "resets: 2h 9m"),
-                  (86399, "resets: 23h 59m"), (86400, "resets: 1d 0h 0m"), (6 * 86400 + 5 * 60, "resets: 6d 0h 5m"),
-                  (6 * 86400 + 3600 + 60, "resets: 6d 1h 1m")] {
-    check("compact_reset_text \(s)", compactResetText(t + s, now: t), want)
-}
-check("compact_reset_rows", rows(Snapshot(generatedAt: t, accounts: [row("claude", five: 4, seven: 9, available: true,
-                                                                        resets: (t + 38 * 60, nil))]), now: t, compact: true)[0].bars,
-      [Bar(label: "5H", percent: 4, reset: "resets: 38m"), Bar(label: "7D", percent: 9)])
-let sevenOnly = Row(name: "codex", client: "codex", account: nil, available: true, fiveHour: nil,
-                    sevenDay: UsageWindow(usedPercent: 33, resetsAt: t + 3600), source: "app-server", stale: false)
-check("compact_reset_content", content(Snapshot(generatedAt: t, accounts: [sevenOnly]), now: t, compact: true),
-      [DisplayRow(title: "codex", client: "codex", bars: [Bar(label: "7D", percent: 33, reset: "resets: 1h 0m")])])
 
 // stale_title: ⚠ leads, so cutting a long title's tail keeps it
 check("stale_title", show([row("claude-personal-backup", five: 1, seven: 2, available: true, stale: true)]).map(\.title),
@@ -130,12 +117,12 @@ func account(_ name: String, bars: Int, reset: String? = nil, email: String? = n
 }
 let r = Metrics.row, d = Metrics.divider, k = Metrics.more, z = Metrics.reset
 // A medium widget is at least 155 pt tall; content margins take at most 16 pt a side. Every row with its reset line.
-let medium = [account("claude", bars: 2, reset: "resets in 1h 0m"), account("codex", bars: 1, reset: "resets in 1d 0h")]
+let medium = [account("claude", bars: 2, reset: "resets: 1h 0m"), account("codex", bars: 1, reset: "resets: 1d 0h")]
 check("fit_medium_claude_codex", fit(medium, height: 155 - 2 * 16), Display(rows: medium, more: 0))
 check("fit_reset_exact", fit(medium, height: 3 * (r + z) + d), Display(rows: medium, more: 0))
 check("fit_reset_short", fit(medium, height: 3 * (r + z) + d - 1), Display(rows: [medium[0]], more: 1))
 // fit_medium_overflow: +k sits under the last name, so it costs no account slot
-let mediumMore = medium + [account("gemini", bars: 1, reset: "resets in 1m")]
+let mediumMore = medium + [account("gemini", bars: 1, reset: "resets: 1m")]
 check("fit_medium_overflow", fit(mediumMore, height: 155 - 2 * 16), Display(rows: medium, more: 1))
 let claudeCodex = [account("claude", bars: 2), account("codex", bars: 1)]
 check("fit_exact", fit(claudeCodex, height: 3 * r + d), Display(rows: claudeCodex, more: 0))
@@ -147,14 +134,14 @@ check("fit_overflow_short", fit(three, height: 4 * r + d - 1), Display(rows: [th
 let singles = [account("a", bars: 1), account("b", bars: 1), account("c", bars: 1)]
 check("fit_single_row_needs_room", fit(singles, height: 2 * r + d + k), Display(rows: Array(singles.prefix(2)), more: 1))
 check("fit_single_row_short", fit(singles, height: 2 * r + d + k - 1), Display(rows: [singles[0]], more: 2))
-check("more_room", [account("a", bars: 2), account("b", bars: 1, reset: "resets in 1m"), account("c", bars: 1),
+check("more_room", [account("a", bars: 2), account("b", bars: 1, reset: "resets: 1m"), account("c", bars: 1),
                     account("d", bars: 0)].map(moreRoom), [0, 0, k, k])
 // An account with no reset line takes a line of its own; on a reset line it costs nothing and takes +k's spot.
 let emails = [account("a", bars: 2, email: "you@example.com"), account("b", bars: 1, email: "work@example.com")]
 check("fit_account_line", fit(emails, height: 3 * r + 2 * z + d), Display(rows: emails, more: 0))
 check("fit_account_line_short", fit(emails, height: 3 * r + 2 * z + d - 1), Display(rows: [emails[0]], more: 1))
-let emailsReset = [account("a", bars: 2, reset: "resets in 1m", email: "you@example.com"),
-                   account("b", bars: 1, reset: "resets in 1m", email: "you@example.com"), account("c", bars: 1)]
+let emailsReset = [account("a", bars: 2, reset: "resets: 1m", email: "you@example.com"),
+                   account("b", bars: 1, reset: "resets: 1m", email: "you@example.com"), account("c", bars: 1)]
 check("fit_account_on_reset", fit(emailsReset, height: 3 * (r + z) + d + k), Display(rows: Array(emailsReset.prefix(2)), more: 1))
 check("fit_account_on_reset_needs_room", fit(emailsReset, height: 3 * (r + z) + d + k - 1),
       Display(rows: [emailsReset[0]], more: 2))
@@ -162,7 +149,7 @@ check("fit_account_no_bars", fit([account("x", bars: 0, email: "you@example.com"
       Display(rows: [account("x", bars: 0, email: "you@example.com")], more: 0))
 // The account on an earlier reset line leaves the last bar row's left side free.
 let earlier = DisplayRow(title: "c", client: nil, account: "you@example.com",
-                         bars: [Bar(label: "5H", percent: 1, reset: "resets in 1m"), Bar(label: "7D", percent: 1)])
+                         bars: [Bar(label: "5H", percent: 1, reset: "resets: 1m"), Bar(label: "7D", percent: 1)])
 check("more_room_account", [emails[0], emailsReset[0], earlier].map(moreRoom), [k, k, 0])
 check("fit_nothing", fit(three, height: 0), Display(rows: [], more: 3))
 check("fit_zero", fit([], height: 100), Display(rows: [], more: 0))
@@ -180,9 +167,9 @@ check("fit_compact_exact", fit(shot, height: 3 * (r + z) + 2 * cd, compact: true
 check("fit_compact_short", fit(shot, height: 3 * (r + z) + 2 * cd - 1, compact: true),
       Display(rows: Array(shot.prefix(2)), more: 1))
 check("fit_compact_short_more", fit(shot, height: 2 * (r + z) + cd + k - 1, compact: true), Display(rows: [shot[0]], more: 2))
-check("second_line", [shot[0], account("x", bars: 1, reset: "resets in 1m"), account("x", bars: 2),
+check("second_line", [shot[0], account("x", bars: 1, reset: "resets: 1m"), account("x", bars: 2),
                       account("x", bars: 0, email: "you@example.com")].map(\.secondLine), [true, true, false, true])
-check("more_room_compact", [shot[0], account("x", bars: 2, reset: "resets in 1m"), account("x", bars: 2)]
+check("more_room_compact", [shot[0], account("x", bars: 2, reset: "resets: 1m"), account("x", bars: 2)]
           .map(compactMoreRoom), [k, 0, k])
 let bare = [account("a", bars: 2), account("b", bars: 1), account("c", bars: 1)]
 check("fit_compact_no_second_line", fit(bare, height: 3 * r + 2 * cd, compact: true), Display(rows: bare, more: 0))
@@ -220,7 +207,7 @@ let valid = load("""
  "notified": [{"name": "codex", "window": "seven_day", "kind": "full", "resets_at": \(t + 3600), "sent_at": \(t - 120)}]}
 """)
 check("load_valid", valid.map { rows($0, now: t) }, [
-    DisplayRow(title: "codex", client: "codex", bars: [Bar(label: "7D", percent: 93, reset: "resets in 1h 0m")]),
+    DisplayRow(title: "codex", client: "codex", bars: [Bar(label: "7D", percent: 93, reset: "resets: 1h 0m")]),
     DisplayRow(title: "old", client: nil, bars: []),
     DisplayRow(title: "claude", client: "claude", account: "you@example.com", bars: []),
 ])
