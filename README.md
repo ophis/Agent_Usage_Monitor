@@ -28,7 +28,7 @@ widget click ──────────────┴─> AgentUsageMonitor
 - Known risks of running `claude -p /usage` every 5 minutes:
   - The subscription login is meant for ordinary use of Claude Code ([legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)); an unattended probe every 5 minutes may fall outside it.
   - A future `claude` that sends `-p /usage` to the model as a prompt instead of running the command would spend quota on every run.
-- Builds with the Xcode Command Line Tools alone, ad-hoc signed, no Xcode or developer account ([widget spike](spike/clt-widget/README.md)).
+- Builds with the Xcode Command Line Tools alone, ad-hoc signed, no Xcode or developer account ([widget spike](docs/spikes/TASK-573-clt-widget.md)).
 
 ## Requirements
 
@@ -85,7 +85,7 @@ Sources: Python collector in `agent_usage_monitor/`; host app (`macos/Host`, no 
 
 ## Spike conclusions
 
-- **TASK-573** ([report](spike/clt-widget/README.md)): pass. `swiftc` with the Command Line Tools SDK builds an ad-hoc-signed host app and WidgetKit extension that macOS 26.7.1 lists in the widget gallery; the sandboxed widget reads `~/.local/state/agent-usage-monitor/` through a home-relative read-only exception, and a click opens the host app. No Xcode needed.
+- **TASK-573** ([report](docs/spikes/TASK-573-clt-widget.md)): pass. `swiftc` with the Command Line Tools SDK builds an ad-hoc-signed host app and WidgetKit extension that macOS 26.7.1 lists in the widget gallery; the sandboxed widget reads `~/.local/state/agent-usage-monitor/` through a home-relative read-only exception, and a click opens the host app. No Xcode needed.
 - **TASK-572** ([report](docs/spikes/TASK-572-claude-usage.md)): pass for Claude Code 2.1.302 and the default account only. `claude -p --no-session-persistence --strict-mcp-config --settings '{"remoteControlAtStartup":false,"disableAllHooks":true}' --model sonnet --effort low /usage` in an empty directory, stdin `/dev/null`, without `ANTHROPIC_*` and `CLAUDE_CODE_OAUTH_TOKEN`, with `DISABLE_AUTOUPDATER=1`, printed the 5h and 7d limits with no model request, no session file, no hook and no MCP server; no session cleanup or status line tap is needed.
 - **TASK-583** ([report](docs/spikes/TASK-583-claude-config-dir-usage.md)): pass for non-default accounts with `CLAUDE_CONFIG_DIR` set to the account dir. The default account must keep it unset: set, `claude` looks for a login item named after the dir and reads as logged out. An account with no 5h window running prints `Current session: 0% used` without a reset time, shown as 5h 0%.
 
