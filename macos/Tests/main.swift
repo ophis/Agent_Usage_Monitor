@@ -202,6 +202,7 @@ AUM-ALERT {"text": "claude · a\\"b \\u73b0\\u5728\\u53ef\\u7528"}
 
 """.utf8)), ["codex · cx 5h 已到 92%，17:00 重置", "claude · a\"b 现在可用"])
 check("alerts_empty", alertTexts(Data()), [])
+check("alerts_crlf", alertTexts(Data("motd\r\nAUM-ALERT {\"text\": \"x\"}\r\n".utf8)), ["x"])
 check("alerts_no_newline", alertTexts(Data(#"AUM-ALERT {"text": "x"}"#.utf8)), ["x"])
 
 if failures > 0 {
