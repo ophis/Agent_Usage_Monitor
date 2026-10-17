@@ -248,5 +248,40 @@ class PrePushTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
 
 
+class CommitsTest(unittest.TestCase):
+    """CI's scan of a pull request: `--commits HEAD^1..HEAD^2` on the merge commit actions/checkout makes."""
+
+    commit = PrePushTest.commit
+
+    def setUp(self):
+        self.repo = tempfile.mkdtemp(prefix="qb-pii-")
+        self.addCleanup(shutil.rmtree, self.repo, True)
+        git(self.repo, "init", "-q", "-b", "main")
+        self.commit("already on main", author=EMAIL)
+        git(self.repo, "checkout", "-q", "-b", "pr")
+
+    def scan(self):
+        git(self.repo, "checkout", "-q", "main")
+        git(self.repo, "merge", "-q", "--no-ff", "-m", "merge", "pr")
+        return subprocess.run(["/usr/bin/python3", SCAN, "--commits", "HEAD^1..HEAD^2"], cwd=self.repo,
+                              capture_output=True, text=True, env=GIT_ENV, timeout=60)
+
+    def test_pr_commit_identity_and_message_hits_fail_without_values(self):
+        self.commit("logs in " + HOME + "/x", author=EMAIL)
+        r = self.scan()
+        out = r.stdout + r.stderr
+        self.assertEqual(r.returncode, 1, out)
+        self.assertIn("author: email", out)
+        self.assertIn("message:1: home-path", out)
+        self.assertEqual(out.count("author: email"), 1, out)
+        for value in (EMAIL, HOME):
+            self.assertNotIn(value, out)
+
+    def test_clean_pr_passes_despite_hits_on_the_base(self):
+        self.commit("fine")
+        r = self.scan()
+        self.assertEqual((r.returncode, r.stdout), (0, ""), r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
