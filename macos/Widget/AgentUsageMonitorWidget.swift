@@ -42,6 +42,7 @@ struct AgentUsageMonitorView: View {
     let entry: Entry
     // The system appearance: the forced .dark below applies only to the content.
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.widgetFamily) private var family
 
     var body: some View {
         // No widgetURL or Link: a tap anywhere opens the host app (FR-28).
@@ -49,7 +50,8 @@ struct AgentUsageMonitorView: View {
             if let rows = entry.rows {
                 // The accounts that fit the real content height, so the size is measured, not assumed per family.
                 GeometryReader { g in
-                    AccountList(display: fit(rows, height: g.size.height), width: g.size.width)
+                    let compact = family == .systemMedium
+                    AccountList(display: fit(rows, height: g.size.height, compact: compact), width: g.size.width, compact: compact)
                 }
             } else {
                 VStack(alignment: .leading, spacing: 4) {
@@ -77,38 +79,43 @@ struct CardBackground: View {
 struct AccountList: View {
     let display: Display
     let width: CGFloat
+    var compact = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(display.rows.indices, id: \.self) { i in
-                if i > 0 { Divider().frame(height: Metrics.divider) }
+                if i > 0 { Divider().frame(height: compact ? Metrics.compactDivider : Metrics.divider) }
                 let row = display.rows[i]
-                if row.bars.isEmpty {
-                    title(row.title).frame(height: Metrics.row)
-                }
-                ForEach(row.bars.indices, id: \.self) { j in
-                    let bar = row.bars[j]
-                    HStack(spacing: 8) {
-                        title(j == 0 ? row.title : "")
-                        BarRow(bar: bar, client: row.client)
+                if compact {
+                    compactRow(row)
+                } else {
+                    if row.bars.isEmpty {
+                        title(row.title).frame(height: Metrics.row)
                     }
-                    .frame(height: Metrics.row)
-                    if let reset = bar.reset {
+                    ForEach(row.bars.indices, id: \.self) { j in
+                        let bar = row.bars[j]
                         HStack(spacing: 8) {
-                            if j == row.accountBar, let account = row.account { small(account) }
-                            Spacer(minLength: 0)
-                            small(reset).fixedSize()
+                            title(j == 0 ? row.title : "")
+                            BarRow(bar: bar, client: row.client)
                         }
-                        .frame(height: Metrics.reset, alignment: .top)
+                        .frame(height: Metrics.row)
+                        if let reset = bar.reset {
+                            HStack(spacing: 8) {
+                                if j == row.accountBar, let account = row.account { small(account) }
+                                Spacer(minLength: 0)
+                                small(reset).fixedSize()
+                            }
+                            .frame(height: Metrics.reset, alignment: .top)
+                        }
                     }
-                }
-                if row.accountLine, let account = row.account {
-                    small(account).frame(maxWidth: .infinity, alignment: .leading)
-                        .frame(height: Metrics.reset, alignment: .top)
+                    if row.accountLine, let account = row.account {
+                        small(account).frame(maxWidth: .infinity, alignment: .leading)
+                            .frame(height: Metrics.reset, alignment: .top)
+                    }
                 }
             }
             if display.more > 0, let last = display.rows.last {
-                Color.clear.frame(height: moreRoom(last))
+                Color.clear.frame(height: compact ? compactMoreRoom(last) : moreRoom(last))
             }
         }
         .overlay(alignment: .bottomLeading) {
@@ -119,10 +126,46 @@ struct AccountList: View {
         }
     }
 
+    private var titleWidth: CGFloat { width * (compact ? 0.2 : 0.34) }
+    /// Compact: the 5H and the 7D column, each a bar with its reset under its right end.
+    private var slot: CGFloat { (width - titleWidth - 16) / 2 }
+
+    /// Medium: the client, then 5H and 7D side by side in fixed columns; a missing window leaves its column empty.
+    /// Under them the account on the left, running under 5H while 5H has no reset.
+    @ViewBuilder private func compactRow(_ row: DisplayRow) -> some View {
+        let bars = ["5H", "7D"].map { label in row.bars.first { $0.label == label } }
+        HStack(spacing: 8) {
+            title(row.title)
+            ForEach(bars.indices, id: \.self) { j in
+                Group {
+                    if let bar = bars[j] { BarRow(bar: bar, client: row.client, compact: true) } else { Color.clear }
+                }
+                .frame(width: slot)
+            }
+        }
+        .frame(height: Metrics.row)
+        if row.secondLine {
+            HStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    if let account = row.account { small(account) }
+                    Spacer(minLength: 0)
+                    if let reset = bars[0]?.reset { small(reset).fixedSize() }
+                }
+                .frame(width: titleWidth + 8 + slot)
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    if let reset = bars[1]?.reset { small(reset).fixedSize() }
+                }
+                .frame(width: slot)
+            }
+            .frame(height: Metrics.reset, alignment: .top)
+        }
+    }
+
     private func title(_ s: String) -> some View {
         // The same size as the percent: who first, then the number.
         Text(s).font(.system(size: 15, weight: .bold)).lineLimit(1).truncationMode(.tail)
-            .frame(width: width * 0.34, alignment: .leading)
+            .frame(width: titleWidth, alignment: .leading)
     }
 
     /// The reset time and the account: gray caption, a long account loses its tail.
@@ -134,16 +177,17 @@ struct AccountList: View {
 struct BarRow: View {
     let bar: Bar
     let client: String?
+    var compact = false
     @Environment(\.widgetRenderingMode) private var mode
 
     private let height = 10.0
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: compact ? 4 : 6) {
             Text(bar.label)
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, 6)
+                .padding(.horizontal, compact ? 4 : 6)
                 .padding(.vertical, 2)
                 .background(.quaternary, in: Capsule())
             GeometryReader { g in
@@ -160,13 +204,13 @@ struct BarRow: View {
                 .font(.caption)
                 .foregroundStyle(.red)
                 .opacity(bar.level == .critical ? 1 : 0)
-                .frame(width: 14)
+                .frame(width: compact ? 12 : 14)
             // The hidden widest value keeps every bar the same length.
             ZStack(alignment: .trailing) {
                 Text("100%").hidden()
                 Text(bar.text).foregroundStyle(bar.percent == nil ? .secondary : .primary)
             }
-            .font(.system(size: 15, weight: .bold, design: .rounded).monospacedDigit())
+            .font(.system(size: compact ? 13 : 15, weight: .bold, design: .rounded).monospacedDigit())
             .fixedSize()
         }
     }

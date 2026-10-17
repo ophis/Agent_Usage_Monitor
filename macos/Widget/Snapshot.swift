@@ -70,6 +70,8 @@ struct DisplayRow: Equatable {
     var accountBar: Int? { account == nil ? nil : bars.lastIndex { $0.reset != nil } }
     /// No reset line to share: the account takes a line of its own under the last bar.
     var accountLine: Bool { account != nil && accountBar == nil }
+    /// Compact (medium): the line under the bars, with the account on its left and each reset under its own bar.
+    var secondLine: Bool { account != nil || bars.contains { $0.reset != nil } }
 }
 
 struct Display: Equatable {
@@ -83,6 +85,7 @@ enum Metrics {
     static let reset = 14.0 // the line and a 2 pt gap before the next row; also the account's own line
     static let divider = 11.0
     static let more = 14.0
+    static let compactDivider = 7.0 // medium: 3 accounts with their second lines fit 155 pt less 16 pt margins
 }
 
 /// `resets in 12m` / `3h 42m` / `6d 3h`; nil when null or not in the future.
@@ -137,17 +140,23 @@ func moreRoom(_ last: DisplayRow) -> Double {
     return last.bars.count > 1 || last.bars.first?.reset != nil ? 0 : Metrics.more
 }
 
-/// The leading accounts that fit `height`, leaving room for +k on overflow.
-func fit(_ rows: [DisplayRow], height: Double) -> Display {
+/// Compact: +k takes the left of the second line, unless the account is there or there is no second line.
+func compactMoreRoom(_ last: DisplayRow) -> Double {
+    last.account != nil || !last.secondLine ? Metrics.more : 0
+}
+
+/// The leading accounts that fit `height`, leaving room for +k on overflow. Compact: one bar line per account.
+func fit(_ rows: [DisplayRow], height: Double, compact: Bool = false) -> Display {
     func span(_ row: DisplayRow) -> Double {
-        (row.bars.isEmpty ? Metrics.row : row.bars.reduce(0) { $0 + Metrics.row + ($1.reset == nil ? 0 : Metrics.reset) })
+        if compact { return Metrics.row + (row.secondLine ? Metrics.reset : 0) }
+        return (row.bars.isEmpty ? Metrics.row : row.bars.reduce(0) { $0 + Metrics.row + ($1.reset == nil ? 0 : Metrics.reset) })
             + (row.accountLine ? Metrics.reset : 0)
     }
     func used(_ n: Int) -> Double {
-        rows.prefix(n).reduce(0) { $0 + span($1) } + Double(max(0, n - 1)) * Metrics.divider
+        rows.prefix(n).reduce(0) { $0 + span($1) } + Double(max(0, n - 1)) * (compact ? Metrics.compactDivider : Metrics.divider)
     }
     if used(rows.count) <= height { return Display(rows: rows, more: 0) }
     var n = 0
-    while n < rows.count && used(n + 1) + moreRoom(rows[n]) <= height { n += 1 }
+    while n < rows.count && used(n + 1) + (compact ? compactMoreRoom(rows[n]) : moreRoom(rows[n])) <= height { n += 1 }
     return Display(rows: Array(rows.prefix(n)), more: rows.count - n)
 }

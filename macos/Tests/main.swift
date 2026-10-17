@@ -153,6 +153,27 @@ check("fit_nothing", fit(three, height: 0), Display(rows: [], more: 3))
 check("fit_zero", fit([], height: 100), Display(rows: [], more: 0))
 check("fit_no_bars_one_row", fit([account("x", bars: 0)], height: r), Display(rows: [account("x", bars: 0)], more: 0))
 
+// fit_compact (medium): one bar line per account, plus a line for the account and resets when it has either
+let shot = show([row("a", five: 0, seven: 100, available: false, resets: (nil, t + 11 * 3600), account: "you@example.com"),
+                 row("b", five: 25, seven: 24, available: true, resets: (t + 2 * 3600, t + 4 * 86400), account: "work@example.com"),
+                 Row(name: "c", client: "codex", account: "you@example.com", available: true, fiveHour: nil,
+                     sevenDay: UsageWindow(usedPercent: 0, resetsAt: t + 6 * 86400), source: "app-server", stale: false)])
+let cd = Metrics.compactDivider
+check("fit_compact_screenshot", fit(shot, height: 155 - 2 * 16, compact: true), Display(rows: shot, more: 0))
+check("fit_large_screenshot", fit(shot, height: 155 - 2 * 16), Display(rows: [shot[0]], more: 2))
+check("fit_compact_exact", fit(shot, height: 3 * (r + z) + 2 * cd, compact: true), Display(rows: shot, more: 0))
+check("fit_compact_short", fit(shot, height: 3 * (r + z) + 2 * cd - 1, compact: true),
+      Display(rows: Array(shot.prefix(2)), more: 1))
+check("fit_compact_short_more", fit(shot, height: 2 * (r + z) + cd + k - 1, compact: true), Display(rows: [shot[0]], more: 2))
+check("second_line", [shot[0], account("x", bars: 1, reset: "resets in 1m"), account("x", bars: 2),
+                      account("x", bars: 0, email: "you@example.com")].map(\.secondLine), [true, true, false, true])
+check("more_room_compact", [shot[0], account("x", bars: 2, reset: "resets in 1m"), account("x", bars: 2)]
+          .map(compactMoreRoom), [k, 0, k])
+let bare = [account("a", bars: 2), account("b", bars: 1), account("c", bars: 1)]
+check("fit_compact_no_second_line", fit(bare, height: 3 * r + 2 * cd, compact: true), Display(rows: bare, more: 0))
+check("fit_compact_no_second_line_short", fit(bare, height: 3 * r + 2 * cd - 1, compact: true),
+      Display(rows: Array(bare.prefix(2)), more: 1))
+
 // load_*
 let dir = FileManager.default.temporaryDirectory.appendingPathComponent("agent-usage-monitor-swift-test-\(getpid())")
 try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
