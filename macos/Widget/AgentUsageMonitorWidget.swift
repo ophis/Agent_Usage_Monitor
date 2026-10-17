@@ -15,16 +15,16 @@ struct Provider: TimelineProvider {
     }
 
     func getSnapshot(in context: Context, completion: @escaping (Entry) -> Void) {
-        completion(entry())
+        completion(entry(compact: context.family == .systemMedium))
     }
 
     // FR-28: one entry, next refresh 5 minutes from now.
     func getTimeline(in context: Context, completion: @escaping (Timeline<Entry>) -> Void) {
-        let e = entry()
+        let e = entry(compact: context.family == .systemMedium)
         completion(Timeline(entries: [e], policy: .after(e.date.addingTimeInterval(300))))
     }
 
-    private func entry() -> Entry {
+    private func entry(compact: Bool) -> Entry {
         // In the sandbox NSHomeDirectory() is the container; the exception is relative to the real home.
         let home = String(cString: getpwuid(getuid())!.pointee.pw_dir)
         let path = home + "/.local/state/agent-usage-monitor/snapshot.json"
@@ -34,7 +34,7 @@ struct Provider: TimelineProvider {
             log.error("no snapshot at ~/.local/state/agent-usage-monitor/snapshot.json")
             return Entry(date: now, rows: nil)
         }
-        return Entry(date: now, rows: content(snapshot, now: Int(now.timeIntervalSince1970)))
+        return Entry(date: now, rows: content(snapshot, now: Int(now.timeIntervalSince1970), compact: compact))
     }
 }
 
@@ -126,15 +126,17 @@ struct AccountList: View {
         }
     }
 
-    private var titleWidth: CGFloat { width * (compact ? 0.18 : 0.34) }
+    // Compact: just wider than `claude` in the title font (49 pt), so the bars get the rest.
+    private var titleWidth: CGFloat { compact ? 52 : width * 0.34 }
+    private let gap = 6.0
     /// Compact: the 5H and the 7D column, each a bar with its reset under its right end.
-    private var slot: CGFloat { (width - titleWidth - 16) / 2 }
+    private var slot: CGFloat { (width - titleWidth - 2 * gap) / 2 }
 
     /// Medium: the client, then 5H and 7D side by side in fixed columns; a missing window leaves its column empty.
     /// Under them the account on the left, running under 5H while 5H has no reset.
     @ViewBuilder private func compactRow(_ row: DisplayRow) -> some View {
         let bars = ["5H", "7D"].map { label in row.bars.first { $0.label == label } }
-        HStack(spacing: 8) {
+        HStack(spacing: gap) {
             title(row.title)
             ForEach(bars.indices, id: \.self) { j in
                 Group {
@@ -145,13 +147,13 @@ struct AccountList: View {
         }
         .frame(height: Metrics.row)
         if row.secondLine {
-            HStack(spacing: 8) {
-                HStack(spacing: 8) {
+            HStack(spacing: gap) {
+                HStack(spacing: 4) {
                     if let account = row.account { small(account) }
                     Spacer(minLength: 0)
                     if let reset = bars[0]?.reset { small(reset).fixedSize() }
                 }
-                .frame(width: titleWidth + 8 + slot)
+                .frame(width: titleWidth + gap + slot)
                 HStack(spacing: 0) {
                     Spacer(minLength: 0)
                     if let reset = bars[1]?.reset { small(reset).fixedSize() }
@@ -183,11 +185,11 @@ struct BarRow: View {
     private let height = 10.0
 
     var body: some View {
-        HStack(spacing: compact ? 4 : 6) {
+        HStack(spacing: compact ? 3 : 6) {
             Text(bar.label)
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, compact ? 4 : 6)
+                .padding(.horizontal, compact ? 3 : 6)
                 .padding(.vertical, 2)
                 .background(.quaternary, in: Capsule())
             GeometryReader { g in

@@ -99,6 +99,14 @@ func resetText(_ resetsAt: Int?, now: Int) -> String? {
     }
 }
 
+/// Medium: `resets: 38m` / `2h 9m` / `6d 1h 1m`, leading zero units left out; nil like resetText.
+func compactResetText(_ resetsAt: Int?, now: Int) -> String? {
+    guard let at = resetsAt, at > now else { return nil }
+    let m = max(1, (at - now) / 60)
+    let units = [(m / 1440, "d"), (m % 1440 / 60, "h"), (m % 60, "m")].drop { $0.0 == 0 }
+    return "resets: " + units.map { "\($0.0)\($0.1)" }.joined(separator: " ")
+}
+
 // agent_usage_monitor/store.py SCHEMA; another version may reuse field names with other meanings.
 let snapshotSchema = 1
 
@@ -115,22 +123,22 @@ func loadSnapshot(path: String) -> Snapshot? {
     return try? decoder.decode(Snapshot.self, from: data)
 }
 
-func rows(_ snapshot: Snapshot, now: Int) -> [DisplayRow] {
+func rows(_ snapshot: Snapshot, now: Int, compact: Bool = false) -> [DisplayRow] {
     // A null window (the account has no such limit) gets no row. ⚠ leads: a long title loses its tail, not the ⚠.
     // The title is the client; the name stands in only for a row without one.
     snapshot.accounts.map { row in
         DisplayRow(title: (row.stale == true ? "⚠ " : "") + (row.client ?? row.name), client: row.client,
                    account: row.account,
                    bars: [("5H", row.fiveHour), ("7D", row.sevenDay)].compactMap { label, window in
-                       window.map { Bar(label: label, percent: $0.usedPercent, reset: resetText($0.resetsAt, now: now)) }
+                       window.map { Bar(label: label, percent: $0.usedPercent, reset: (compact ? compactResetText : resetText)($0.resetsAt, now)) }
                    })
     }
 }
 
 /// nil, the FR-27 no-data view, when there is no snapshot or it has no accounts.
-func content(_ snapshot: Snapshot?, now: Int) -> [DisplayRow]? {
+func content(_ snapshot: Snapshot?, now: Int, compact: Bool = false) -> [DisplayRow]? {
     guard let s = snapshot, !s.accounts.isEmpty else { return nil }
-    return rows(s, now: now)
+    return rows(s, now: now, compact: compact)
 }
 
 /// +k sits under the last visible title; it needs a line of its own only when that spot is taken,

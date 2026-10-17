@@ -51,7 +51,22 @@ for (s, want) in [(1, "resets in 1m"), (59, "resets in 1m"), (60, "resets in 1m"
 }
 for (at, name) in [(nil, "nil"), (t, "now"), (t - 60, "past")] as [(Int?, String)] {
     check("reset_text \(name)", resetText(at, now: t), nil)
+    check("compact_reset_text \(name)", compactResetText(at, now: t), nil)
 }
+
+// compact_reset_text (medium): days, hours and minutes, leading zero units left out
+for (s, want) in [(1, "resets: 1m"), (38 * 60 + 59, "resets: 38m"), (3600, "resets: 1h 0m"), (2 * 3600 + 9 * 60, "resets: 2h 9m"),
+                  (86399, "resets: 23h 59m"), (86400, "resets: 1d 0h 0m"), (6 * 86400 + 5 * 60, "resets: 6d 0h 5m"),
+                  (6 * 86400 + 3600 + 60, "resets: 6d 1h 1m")] {
+    check("compact_reset_text \(s)", compactResetText(t + s, now: t), want)
+}
+check("compact_reset_rows", rows(Snapshot(generatedAt: t, accounts: [row("claude", five: 4, seven: 9, available: true,
+                                                                        resets: (t + 38 * 60, nil))]), now: t, compact: true)[0].bars,
+      [Bar(label: "5H", percent: 4, reset: "resets: 38m"), Bar(label: "7D", percent: 9)])
+let sevenOnly = Row(name: "codex", client: "codex", account: nil, available: true, fiveHour: nil,
+                    sevenDay: UsageWindow(usedPercent: 33, resetsAt: t + 3600), source: "app-server", stale: false)
+check("compact_reset_content", content(Snapshot(generatedAt: t, accounts: [sevenOnly]), now: t, compact: true),
+      [DisplayRow(title: "codex", client: "codex", bars: [Bar(label: "7D", percent: 33, reset: "resets: 1h 0m")])])
 
 // stale_title: ⚠ leads, so cutting a long title's tail keeps it
 check("stale_title", show([row("claude-personal-backup", five: 1, seven: 2, available: true, stale: true)]).map(\.title),
