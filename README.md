@@ -64,7 +64,7 @@ Each host run (every 5 minutes and on a widget click) runs `collect --emit-alert
 
 Each alert is sent once: `collect` records it in the snapshot's `notified` list as it prints it (account, limit, reset time, `sent_at`) and alerts on that limit again only for a reset time more than 10 minutes from the recorded one; entries older than 7 days are dropped. An alert the host cannot post is logged to `~/Library/Logs/agent-usage-monitor.log` and not retried. While the Mac sleeps nothing is collected; the first run after waking alerts on the current state.
 
-The first alert makes macOS ask whether Agent Usage Monitor may send notifications: click Allow, or turn them on later in System Settings › Notifications › Agent Usage Monitor. The host waits up to 60 s for the answer, then drops that run's alerts. The installed app (`com.ophis.agent-usage-monitor`) asks even if you allowed the [TASK-638 spike](#spike-conclusions) app, which had another bundle ID; that spike's second Agent Usage Monitor entry in System Settings › Notifications is stale and can be removed.
+The first alert makes macOS ask whether Agent Usage Monitor may send notifications: click Allow, or turn them on later in System Settings › Notifications › Agent Usage Monitor. The host waits up to 60 s for the answer, then drops that run's alerts. The installed app (`com.ophis.agent-usage-monitor`) asks even if you allowed the [TASK-638 spike](#spike-conclusions) app, which had another bundle ID. A second Agent Usage Monitor entry may remain in System Settings › Notifications from that testing; you can leave it switched off.
 
 ## Development
 
@@ -72,7 +72,7 @@ The first alert makes macOS ask whether Agent Usage Monitor may send notificatio
 make test                  # unit tests with /usr/bin/python3; fake codex and claude only
 make pii-scan              # tracked files hold no emails, UUIDs, real home paths or image metadata (NFR-4)
 make hooks                 # enable the pre-push hook in this clone (make check also does)
-make swift-test            # widget display model self-test
+make swift-test            # widget display model and alert-line parser self-test
 make app                   # build/AgentUsageMonitor.app (swiftc + Command Line Tools, ad-hoc signed)
 make check                 # all of the above, then plist lint, signature, widget entitlements and app icon,
                            # and checks the code never names credential files or network APIs
