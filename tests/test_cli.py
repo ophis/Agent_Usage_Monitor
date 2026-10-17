@@ -122,7 +122,7 @@ class CollectTest(unittest.TestCase):
         self.env.mkdir(".claude")
         self.collect()
         snap = self.env.snapshot()
-        self.assertEqual(set(snap), {"schema", "generated_at", "threshold", "accounts", "summary"})
+        self.assertEqual(set(snap), {"schema", "generated_at", "threshold", "accounts", "summary", "notified"})
         self.assertEqual(snap["schema"], 1)
         self.assertIsInstance(snap["generated_at"], int)
         for row in snap["accounts"]:
@@ -261,6 +261,64 @@ class CollectTest(unittest.TestCase):
                 self.collect()
                 self.assertEqual(self.row("claude")["source"], "usage")
                 self.assertEqual(claude_calls(self.env)[-1]["env"]["PATH"], seen)
+
+
+class EmitAlertsTest(unittest.TestCase):
+    """FR-8, Python side: alerts as `AUM-ALERT ` lines on stdout, recorded in notified (FR-1, FR-9)."""
+
+    def setUp(self):
+        self.env = Env()
+        self.addCleanup(self.env.cleanup)
+        self.later = int(time.time()) + 3600
+        d = os.path.join(self.env.home, "cx")
+        install_fake_codex(self.env, d, result=rate_limits(window(92, 300, self.later), window(10, 10080, self.later)))
+        self.env.write_accounts({"accounts": [{"name": "cx", "client": "codex", "dir": d}]})
+
+    def alerts(self, r):
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = r.stdout.splitlines()
+        for line in lines:
+            self.assertTrue(line.startswith("AUM-ALERT "), line)
+        return [json.loads(line[len("AUM-ALERT "):])["text"] for line in lines]
+
+    def test_emit_once_and_recorded(self):
+        texts = self.alerts(self.env.run("collect", "--emit-alerts"))
+        self.assertEqual(len(texts), 1)
+        self.assertIn("codex · cx 5h 已到 92%", texts[0])
+        self.assertEqual([(k["name"], k["window"], k["kind"], k["resets_at"]) for k in self.env.snapshot()["notified"]],
+                         [("cx", "five_hour", "full", self.later)])
+        self.assertEqual(self.alerts(self.env.run("collect", "--emit-alerts")), [])
+
+    def test_without_flag_stdout_empty_nothing_recorded(self):
+        r = self.env.run("collect")
+        self.assertEqual((r.returncode, r.stdout), (0, ""), r.stderr)
+        self.assertEqual(self.env.snapshot()["notified"], [])
+
+    def test_two_collects_at_once_one_alert(self):
+        procs = [subprocess.Popen(["/usr/bin/python3", BIN, "collect", "--emit-alerts"], env=self.env.environ,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for _ in range(2)]
+        out = [p.communicate(timeout=60)[0] for p in procs]
+        self.assertEqual([p.returncode for p in procs], [0, 0])
+        self.assertEqual(len("".join(out).splitlines()), 1, out)
+        self.assertEqual(len(self.env.snapshot()["notified"]), 1)
+
+    def test_available_again_without_probing(self):
+        self.env.mkdir(".claude")
+        self.env.write_accounts({"accounts": [{"name": "claude-max", "client": "claude", "dir": "~/.claude"}]})
+        self.env.run("collect")
+        now = int(time.time())
+        snap = self.env.snapshot()
+        snap["accounts"][0].update(five_hour={"used_percent": 95, "resets_at": now - 60},
+                                   seven_day={"used_percent": 10, "resets_at": now + 3600},
+                                   fetched_at=now - 60, source="usage")
+        snap["notified"] = [{"name": "claude-max", "window": "five_hour", "kind": "full", "resets_at": now - 60,
+                             "sent_at": now - 3600}]
+        with open(self.env.snapshot_path, "w") as f:
+            json.dump(snap, f)
+        install_fake_claude(self.env, fail=True)
+        self.assertEqual(self.alerts(self.env.run("collect", "--emit-alerts")), ["claude · claude-max 现在可用"])
+        self.assertEqual(claude_calls(self.env), [])
+        self.assertEqual(self.env.snapshot()["notified"], [])
 
 
 if __name__ == "__main__":

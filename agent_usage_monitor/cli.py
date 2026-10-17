@@ -1,5 +1,6 @@
 import argparse
 import concurrent.futures
+import json
 import os
 import signal
 import sys
@@ -16,7 +17,12 @@ def _codex(account, environ):
     return dict(windows, fetched_at=int(time.time()), source="app-server"), False, None
 
 
-def collect(environ):
+def _emit(text):
+    # the prefix sets alerts apart from anything the host's login shell prints
+    print("AUM-ALERT " + json.dumps({"text": text}), flush=True)
+
+
+def collect(environ, emit_alerts=False):
     path = environ.get("PATH", "")
     local_bin = os.path.join(accounts.home(environ), ".local", "bin")
     if local_bin not in path.split(os.pathsep):
@@ -57,7 +63,7 @@ def collect(environ):
                 failed.add(name)
             if message:
                 print(message, file=sys.stderr)
-    for line in store.write(state, accts, threshold, updates, failed):
+    for line in store.write(state, accts, threshold, updates, failed, emit=_emit if emit_alerts else None):
         print(line, file=sys.stderr)
     if interrupted:
         raise interrupted
@@ -69,6 +75,7 @@ def main(argv=None):
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     parser = argparse.ArgumentParser(prog="agent-usage-monitor")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("collect", help="read every account's limits and write the snapshot")
-    parser.parse_args(argv)
-    return collect(os.environ)
+    p = sub.add_parser("collect", help="read every account's limits and write the snapshot")
+    p.add_argument("--emit-alerts", action="store_true", help="decide alerts and print each as an AUM-ALERT line")
+    args = parser.parse_args(argv)
+    return collect(os.environ, args.emit_alerts)

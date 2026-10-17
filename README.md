@@ -4,7 +4,7 @@ A macOS desktop widget that shows, for every Claude Code and Codex account on on
 
 ![Medium and large Agent Usage Monitor widgets: each account's name, then 5H and 7D usage bars with percent and reset time, red with a warning triangle from 90%](docs/images/widget-demo.png)
 
-> **Status:** in development (milestone M1). Installable: the widget shows every Codex and Claude account.
+> **Status:** in development (milestone M2). Installable: the widget shows every Codex and Claude account, and macOS notifications tell you when a limit is nearly used up or an account is usable again.
 
 ## How it works
 
@@ -20,6 +20,7 @@ widget click ──────────────┴─> AgentUsageMonitor
 - `agent-usage-monitor collect` (Python 3.9 standard library) reads every account's limits at once, so a stuck CLI holds up only its own account, and writes one snapshot file that the widget displays.
 - Codex limits come from `codex app-server` and Claude limits from `claude -p /usage`, every 5 minutes and when you click the widget.
 - Each Claude account is a `CLAUDE_CONFIG_DIR`, each Codex account a `CODEX_HOME`.
+- The host app runs `collect --emit-alerts` and posts the alerts it prints as macOS notifications ([Alerts](#alerts)).
 
 ## Principles
 
@@ -50,9 +51,20 @@ Each step can be rolled back on its own.
 
 `make install` refuses to replace a `~/.local/bin/agent-usage-monitor` that is not its own link. Each rebuild changes the ad-hoc signature: after `make install` again, remove and re-add the widget if it stops updating. `make app` also stamps both bundles' `CFBundleVersion` with the build time, so macOS sees each install as a new build; Apple does not document whether that makes the widget gallery pick up changed sizes. `make install` also stops the running widget extension, matched by its installed path: the old process keeps serving the replaced bundle, so every widget reload fails with `Bundle version did not match` until it exits; macOS starts the new one on the next reload. `make uninstall` runs `launchctl bootout` first, then deletes the app, the link and the plist; delete `~/.local/state/agent-usage-monitor`, `~/.config/agent-usage-monitor` and `~/Library/Logs/agent-usage-monitor.log` yourself.
 
-After `git pull`, run `make install` again: the link makes the new CLI live at once, and it must match the installed host (an older host passes `--probe`, which the current CLI rejects with exit 2).
+After `git pull`, run `make -C ~/.local/share/agent-usage-monitor install` again: the link makes the new CLI live at once, and it must match the installed host (an older host passes `--probe`, which the current CLI rejects with exit 2; an M1 host runs `collect` without `--emit-alerts`, so it sends no alerts).
 
 The widget is a dark card with one group per account, grouped by client ([account list](#account-list)) and separated by thin lines: the client (`claude`, `codex`), then one row per limit (`5H`, `7D`) with a progress bar and the percent, and under the percent when the limit resets (`resets in 12m`, `3h 42m`, `6d 3h`; no line when unknown). The account's `account` string, if set, shows in small grey type at the left of its last reset line, or on a line of its own under the last bar when no limit shows a reset; a long one loses its tail. It shows as many accounts as its size fits; the rest show as `+<k>` under the last one. The bar is teal for Claude, periwinkle for Codex and grey for other clients, yellow from 80% and red from 90%, where a red triangle also precedes the percent; an unknown percent shows an empty bar and `—`, and a limit the account does not have shows no row. The client starts with `⚠` when the account's values are older than 6 hours (`stale`). There is no header line. This layout (TASK-595) replaces the PRD's FR-26 text rows. A click runs `collect` and refreshes the widget within about 30 seconds. With no snapshot it shows `Agent Usage Monitor：没有数据`; click it to collect.
+
+## Alerts
+
+Each host run (every 5 minutes and on a widget click) runs `collect --emit-alerts`. Under the same lock as the snapshot write, `collect` decides the alerts from the snapshot and prints each as an `AUM-ALERT {"text": …}` line; the host posts them as notifications titled Agent Usage Monitor. Without `--emit-alerts`, `collect` decides no alerts and prints nothing.
+
+- `<client> · <account> <5h|7d> 已到 <x>%，<reset> 重置`: a limit is at or above `threshold` ([account list](#account-list)). `<account>` is the account's `account`, else its `name`; `<reset>` is the local reset time, with the date when it is not today; with no reset time the clause reads `重置时间未知`.
+- `<client> · <account> 现在可用`: an account that had such an alert is available again, after that limit's reset or, with no reset time known, once it is below `threshold`.
+
+Each alert is sent once: `collect` records it in the snapshot's `notified` list as it prints it (account, limit, reset time, `sent_at`) and alerts on that limit again only for a reset time more than 10 minutes from the recorded one; entries older than 7 days are dropped. An alert the host cannot post is logged to `~/Library/Logs/agent-usage-monitor.log` and not retried. While the Mac sleeps nothing is collected; the first run after waking alerts on the current state.
+
+The first alert makes macOS ask whether Agent Usage Monitor may send notifications: click Allow, or turn them on later in System Settings › Notifications › Agent Usage Monitor. The host waits up to 60 s for the answer, then drops that run's alerts. The installed app (`com.ophis.agent-usage-monitor`) asks even if you allowed the [TASK-638 spike](#spike-conclusions) app, which had another bundle ID. A second Agent Usage Monitor entry may remain in System Settings › Notifications from that testing; you can leave it switched off.
 
 ## Development
 
@@ -60,11 +72,11 @@ The widget is a dark card with one group per account, grouped by client ([accoun
 make test                  # unit tests with /usr/bin/python3; fake codex and claude only
 make pii-scan              # tracked files hold no emails, UUIDs, real home paths or image metadata (NFR-4)
 make hooks                 # enable the pre-push hook in this clone (make check also does)
-make swift-test            # widget display model self-test
+make swift-test            # widget display model and alert-line parser self-test
 make app                   # build/AgentUsageMonitor.app (swiftc + Command Line Tools, ad-hoc signed)
 make check                 # all of the above, then plist lint, signature, widget entitlements and app icon,
                            # and checks the code never names credential files or network APIs
-bin/agent-usage-monitor collect     # read every account, write the snapshot (what the LaunchAgent and a widget click run)
+bin/agent-usage-monitor collect     # read every account, write the snapshot; the host adds --emit-alerts
 ```
 
 CI ([`.github/workflows/check.yml`](.github/workflows/check.yml)) runs `make check` on a macOS 26 runner with the Command Line Tools for every pull request and push to `main`. On a pull request it first runs the pre-push scan below on the pull request's commits (`tests/pii_scan.py --commits`): their author and committer emails, messages and files, so a push that skipped the hook is still caught.
@@ -81,13 +93,16 @@ It writes `~/.local/state/agent-usage-monitor/snapshot.json`. Codex limits come 
 
 Claude limits come from `collect`, which runs `claude -p /usage` for every Claude account in `~/.local/state/agent-usage-monitor/probe/`, with the arguments and environment from the [spike report](docs/spikes/TASK-572-claude-usage.md). The default account (`~/.claude`) runs without `CLAUDE_CONFIG_DIR`; any other account runs with `CLAUDE_CONFIG_DIR=<dir>`. In each such `<dir>`, `claude` itself rewrites `.claude.json` (with a copy under `backups/`) on every probe, syncs the account's plugins and skills under `plugins/synced/` and `skills/synced/` on the first one, and creates an empty `projects/<probe dir>/memory/`; agent-usage-monitor writes nothing there. An account probed less than 4 minutes ago is skipped. If `claude` prints output the parser does not recognize, that account is not probed again until `claude --version` changes; delete `usage_disabled_version` from its snapshot row to retry sooner.
 
-Sources: Python collector in `agent_usage_monitor/`; host app (`macos/Host`, no window, no Dock icon, not sandboxed) and widget (`macos/Widget`, sandboxed, read-only access to `~/.local/state/agent-usage-monitor/` only) in `macos/`.
+Sources: Python collector in `agent_usage_monitor/`; host app (`macos/Host`, no window, no Dock icon, not sandboxed, posts the alerts) and widget (`macos/Widget`, sandboxed, read-only access to `~/.local/state/agent-usage-monitor/` only) in `macos/`.
 
 ## Spike conclusions
 
 - **TASK-573** ([report](docs/spikes/TASK-573-clt-widget.md)): pass. `swiftc` with the Command Line Tools SDK builds an ad-hoc-signed host app and WidgetKit extension that macOS 26.7.1 lists in the widget gallery; the sandboxed widget reads `~/.local/state/agent-usage-monitor/` through a home-relative read-only exception, and a click opens the host app. No Xcode needed.
 - **TASK-572** ([report](docs/spikes/TASK-572-claude-usage.md)): pass for Claude Code 2.1.302 and the default account only. `claude -p --no-session-persistence --strict-mcp-config --settings '{"remoteControlAtStartup":false,"disableAllHooks":true}' --model sonnet --effort low /usage` in an empty directory, stdin `/dev/null`, without `ANTHROPIC_*` and `CLAUDE_CODE_OAUTH_TOKEN`, with `DISABLE_AUTOUPDATER=1`, printed the 5h and 7d limits with no model request, no session file, no hook and no MCP server; no session cleanup or status line tap is needed.
 - **TASK-583** ([report](docs/spikes/TASK-583-claude-config-dir-usage.md)): pass for non-default accounts with `CLAUDE_CONFIG_DIR` set to the account dir. The default account must keep it unset: set, `claude` looks for a login item named after the dir and reads as logged out. An account with no 5h window running prints `Current session: 0% used` without a reset time, shown as 5h 0%.
+- **TASK-638** (2026-10-17, macOS 26.7.1): both ways of notifying work from the LaunchAgent; the host app's is used.
+  - `osascript` `display notification` run by the installed host through `/bin/zsh -l` and `/usr/bin/python3`: exit 0, shown with no permission prompt, but as Script Editor (`com.apple.ScriptEditor2`), with its generic script icon.
+  - `UNUserNotificationCenter` from an ad-hoc-signed test app with the host's name and icon (bundle ID `com.ophis.agent-usage-monitor.spike-un`, outside `~/Applications`, started by a temporary LaunchAgent): macOS showed an Allow prompt for Agent Usage Monitor; once allowed, `requestAuthorization` returned granted and the notification showed as a banner with Agent Usage Monitor's name and icon.
 
 ## Credits
 
