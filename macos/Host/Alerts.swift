@@ -4,14 +4,22 @@ import Foundation
 
 let alertPrefix = "AUM-ALERT "
 
-private struct Alert: Decodable {
+private struct Payload: Decodable {
     let text: String
 }
 
-/// The text of each `AUM-ALERT {"text": …}` line, in order; any other line (login-shell output) is skipped.
-func alertTexts(_ output: Data) -> [String] {
+/// One alert: its text, and its line verbatim, which `record-alerts` gets back once macOS has it (TASK-640).
+struct AlertLine: Equatable {
+    let text: String
+    let line: String
+}
+
+/// Each `AUM-ALERT {"text": …}` line, in order; any other line (login-shell output) is skipped.
+func alertLines(_ output: Data) -> [AlertLine] {
     String(decoding: output, as: UTF8.self).split(whereSeparator: \.isNewline).compactMap { line in
-        guard line.hasPrefix(alertPrefix) else { return nil }
-        return (try? JSONDecoder().decode(Alert.self, from: Data(line.dropFirst(alertPrefix.count).utf8)))?.text
+        guard line.hasPrefix(alertPrefix),
+              let payload = try? JSONDecoder().decode(Payload.self, from: Data(line.dropFirst(alertPrefix.count).utf8))
+        else { return nil }
+        return AlertLine(text: payload.text, line: String(line))
     }
 }

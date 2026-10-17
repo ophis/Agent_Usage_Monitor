@@ -17,9 +17,31 @@ def _codex(account, environ):
     return dict(windows, fetched_at=int(time.time()), source="app-server"), False, None
 
 
-def _emit(text):
+PREFIX = "AUM-ALERT "
+
+
+def _emit(alert):
     # the prefix sets alerts apart from anything the host's login shell prints
-    print("AUM-ALERT " + json.dumps({"text": text}), flush=True)
+    print(PREFIX + json.dumps(alert), flush=True)
+
+
+def record_alerts(environ, lines):
+    """The host passes back the AUM-ALERT lines it handed to macOS; only those count as sent (TASK-640)."""
+    sent = []
+    for line in lines:
+        if not line.startswith(PREFIX):
+            continue
+        try:
+            alert = json.loads(line[len(PREFIX):])
+        except ValueError:
+            alert = None
+        if isinstance(alert, dict):
+            sent.append(alert)
+        else:
+            print("agent-usage-monitor: record-alerts: skipping a malformed line", file=sys.stderr)
+    for line in store.record(store.state_dir(environ), sent):
+        print(line, file=sys.stderr)
+    return 0
 
 
 def collect(environ, emit_alerts=False):
@@ -77,5 +99,8 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("collect", help="read every account's limits and write the snapshot")
     p.add_argument("--emit-alerts", action="store_true", help="decide alerts and print each as an AUM-ALERT line")
+    sub.add_parser("record-alerts", help="record the AUM-ALERT lines on stdin as sent (the host, after posting them)")
     args = parser.parse_args(argv)
+    if args.command == "record-alerts":
+        return record_alerts(os.environ, sys.stdin.read().splitlines())
     return collect(os.environ, args.emit_alerts)
