@@ -83,6 +83,15 @@ class BinaryRulesTest(unittest.TestCase):
         self.assertEqual(pii_scan.scan_binary(b"\0\0<x:xmpmeta xmlns:x='adobe:ns:meta/'>"), ["metadata"])
         self.assertEqual(pii_scan.scan_binary(b"\0\x01\x02plain"), [])
 
+    def test_non_png_binary_runs_text_rules_without_nul_bytes(self):
+        self.assertEqual(pii_scan.scan_blob("a.bin", b"\0\x01by " + EMAIL.encode(), []), ["a.bin:1: email"])
+        self.assertEqual(pii_scan.scan_blob("a.txt", "\0".join(HOME + "/x").encode(), []), ["a.txt:1: home-path"])
+        self.assertEqual(pii_scan.scan_blob("a.jpg", b"\xff\xd8Exif\0\0 " + UUID.encode(), []),
+                         ["a.jpg: metadata", "a.jpg:1: uuid"])
+
+    def test_png_gets_no_text_rules(self):
+        self.assertEqual(pii_scan.scan_blob("a.png", png((b"IDAT", EMAIL.encode())), []), [])
+
 
 class AllowlistTest(unittest.TestCase):
     def setUp(self):
@@ -237,6 +246,41 @@ class PrePushTest(unittest.TestCase):
         self.assertEqual(self.push("HEAD:feature").returncode, 0)
         r = self.push(":feature")
         self.assertEqual(r.returncode, 0, r.stderr)
+
+
+class CommitsTest(unittest.TestCase):
+    """CI's scan of a pull request: `--commits HEAD^1..HEAD^2` on the merge commit actions/checkout makes."""
+
+    commit = PrePushTest.commit
+
+    def setUp(self):
+        self.repo = tempfile.mkdtemp(prefix="qb-pii-")
+        self.addCleanup(shutil.rmtree, self.repo, True)
+        git(self.repo, "init", "-q", "-b", "main")
+        self.commit("already on main", author=EMAIL)
+        git(self.repo, "checkout", "-q", "-b", "pr")
+
+    def scan(self):
+        git(self.repo, "checkout", "-q", "main")
+        git(self.repo, "merge", "-q", "--no-ff", "-m", "merge", "pr")
+        return subprocess.run(["/usr/bin/python3", SCAN, "--commits", "HEAD^1..HEAD^2"], cwd=self.repo,
+                              capture_output=True, text=True, env=GIT_ENV, timeout=60)
+
+    def test_pr_commit_identity_and_message_hits_fail_without_values(self):
+        self.commit("logs in " + HOME + "/x", author=EMAIL)
+        r = self.scan()
+        out = r.stdout + r.stderr
+        self.assertEqual(r.returncode, 1, out)
+        self.assertIn("author: email", out)
+        self.assertIn("message:1: home-path", out)
+        self.assertEqual(out.count("author: email"), 1, out)
+        for value in (EMAIL, HOME):
+            self.assertNotIn(value, out)
+
+    def test_clean_pr_passes_despite_hits_on_the_base(self):
+        self.commit("fine")
+        r = self.scan()
+        self.assertEqual((r.returncode, r.stdout), (0, ""), r.stderr)
 
 
 if __name__ == "__main__":

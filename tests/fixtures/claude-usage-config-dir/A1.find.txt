@@ -2,7 +2,7 @@
 <dir-a>/backups/.claude.json.backup.1792252832096
 <dir-a>/plugins/synced/.bucket-<ORG_ID>_<SYNC_ID>
 <dir-a>/plugins/synced/<ORG_ID>_<SYNC_ID>/.marketplaces.json
-<dir-a>/plugins/synced/<ORG_ID>_<SYNC_ID>/.staging/33428/agent-pm/unzip-cc97c7277896d062/linear-orchestrator/src/agent_pm/linear_orchestrator/linear/linear.py
+<dir-a>/plugins/synced/<ORG_ID>_<SYNC_ID>/.staging/33428/<PLUGIN>/...
 <dir-a>/skills/synced/.bucket-<ORG_ID>_<SYNC_ID>
 <dir-a>/skills/synced/<ORG_ID>_<SYNC_ID>/built-in-browser/LICENSE.txt
 <dir-a>/skills/synced/<ORG_ID>_<SYNC_ID>/built-in-browser/SKILL.md

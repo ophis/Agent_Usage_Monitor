@@ -1,7 +1,8 @@
 """NFR-4: find personal data before it is public. Prints where and the rule, never the value.
 
 From the repo root: `/usr/bin/python3 tests/pii_scan.py` scans the git-tracked files (make check);
-`... --pre-push <remote>` reads the pre-push hook's stdin and scans what the push publishes.
+`... --pre-push <remote>` reads the pre-push hook's stdin and scans what the push publishes;
+`... --commits <base>..<head>` scans those commits the same way (CI, for a pull request).
 """
 
 import fnmatch
@@ -83,10 +84,13 @@ def scan_binary(data):
 
 
 def scan_blob(name, data, allow):
-    """Hit lines `name:line: rule`; a file holding a NUL byte is binary and checked for metadata only."""
-    if b"\0" in data:
+    """Hit lines `name:line: rule`. A PNG is checked for metadata only; any other file holding a NUL byte
+    is binary: checked for metadata, then by the text rules with its NUL bytes removed."""
+    if data.startswith(PNG):
         return ["%s: %s" % (name, rule) for rule in scan_binary(data)]
-    return ["%s:%d: %s" % (name, n, rule) for n, rule in scan_text(data.decode("utf-8", "replace"), allow)]
+    hits = ["%s: %s" % (name, rule) for rule in scan_binary(data)] if b"\0" in data else []
+    text = data.replace(b"\0", b"").decode("utf-8", "replace")
+    return hits + ["%s:%d: %s" % (name, n, rule) for n, rule in scan_text(text, allow)]
 
 
 def git(*args):
@@ -110,7 +114,11 @@ def scan_push(remote, refs, allow):
     if not tips:
         return []
     # shortcut: a push to a URL instead of a remote name excludes nothing, so it scans all reachable history.
-    revs = tips + ["--not", "--remotes=" + remote]
+    return scan_revs(tips + ["--not", "--remotes=" + remote], allow)
+
+
+def scan_revs(revs, allow):
+    """Blobs, commit messages, author and committer emails of the commits `git rev-list <revs>` names."""
     hits = []
     for line in git("rev-list", "--objects", "--filter=object:type=blob", *revs).decode().splitlines():
         sha, _, path = line.partition(" ")
@@ -128,7 +136,12 @@ def scan_push(remote, refs, allow):
 
 def main(argv):
     allow = load_allowlist(ALLOWLIST)
-    hits = scan_push(argv[1], sys.stdin, allow) if argv[:1] == ["--pre-push"] else scan_files(allow)
+    if argv[:1] == ["--pre-push"]:
+        hits = scan_push(argv[1], sys.stdin, allow)
+    elif argv[:1] == ["--commits"]:
+        hits = scan_revs([argv[1]], allow)
+    else:
+        hits = scan_files(allow)
     for hit in hits:
         print(hit)
     if hits:

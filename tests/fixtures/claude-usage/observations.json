@@ -69,7 +69,7 @@
         "<CLAUDE_DIR>",
         "<PROBE>",
         "-newer",
-        "<HOME>/.agent-pm/work/TASK-572/agent/tmp/captures/A1-marker",
+        "<WORKDIR>/tmp/captures/A1-marker",
         "-type",
         "f"
       ],
@@ -211,7 +211,7 @@
         "<CLAUDE_DIR>",
         "<PROBE>",
         "-newer",
-        "<HOME>/.agent-pm/work/TASK-572/agent/tmp/captures/A2-marker",
+        "<WORKDIR>/tmp/captures/A2-marker",
         "-type",
         "f"
       ],

@@ -30,7 +30,8 @@ struct Provider: TimelineProvider {
         let path = home + "/.local/state/agent-usage-monitor/snapshot.json"
         let now = Date()
         guard let snapshot = loadSnapshot(path: path) else {
-            log.error("no snapshot at \(path, privacy: .public)")
+            // A fixed message: the path holds the user name, and the system log leaves the machine in a sysdiagnose.
+            log.error("no snapshot at ~/.local/state/agent-usage-monitor/snapshot.json")
             return Entry(date: now, rows: nil)
         }
         return Entry(date: now, rows: content(snapshot, now: Int(now.timeIntervalSince1970)))
