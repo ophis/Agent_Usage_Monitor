@@ -98,7 +98,7 @@ residual NON-BLOCKING: architecture#2 (store.snapshot_path for FR-11), architect
 - requirement-fidelity#1 BLOCKING: Makefile --include='*.py' makes BSD grep skip bin/quotaboard; NFR-1 check never looks at the entry script. Fix: add --include=quotaboard. (fixed)
 - correctness#1 NON-BLOCKING: deeply nested JSON raises RecursionError (not ValueError) in codex/store read -> crash. (fixed, also accounts)
 - verification#1 NON-BLOCKING: make check exit 0, 76 tests; ResourceWarning lines in test output (non-failing).
-- verification#2 NON-BLOCKING: NFR-4 grep clean except pre-existing tests/fixtures/claude-usage/observations.json <HOME>/.agent-pm paths (not this build's work).
+- verification#2 NON-BLOCKING: NFR-4 grep clean except pre-existing tests/fixtures/claude-usage/observations.json <WORKDIR> paths (not this build's work).
 - verification#3 NON-BLOCKING: spec and plan contain absolute work paths; sanitize before the S7 copy.
 - architecture#1 NON-BLOCKING: codex.probe uses global os.environ; pass environ through. (fixed)
 - architecture#2 NON-BLOCKING: add store.snapshot_path for the FR-11 throttle. (deferred to step 3)
