@@ -31,8 +31,8 @@ class Env:
     def cleanup(self):
         shutil.rmtree(self.root, ignore_errors=True)
 
-    def run(self, *args):
-        return subprocess.run(["/usr/bin/python3", BIN] + list(args), env=self.environ,
+    def run(self, *args, input=None):
+        return subprocess.run(["/usr/bin/python3", BIN] + list(args), env=self.environ, input=input,
                               capture_output=True, text=True, timeout=60)
 
     def mkdir(self, name):

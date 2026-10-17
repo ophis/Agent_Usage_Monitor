@@ -189,7 +189,8 @@ check("load_valid", valid.map { rows($0, now: t) }, [
     DisplayRow(title: "claude", client: "claude", account: "you@example.com", bars: []),
 ])
 
-// alertTexts (macos/Host/Alerts.swift): only `AUM-ALERT ` lines with a JSON string `text`
+// alertLines (macos/Host/Alerts.swift): only `AUM-ALERT ` lines with a JSON string `text`
+func alertTexts(_ output: Data) -> [String] { alertLines(output).map(\.text) }
 check("alerts_parse", alertTexts(Data("""
 Last login: Mon
 AUM-ALERT {"text": "codex · cx 5h 已到 92%，17:00 重置"}
@@ -204,6 +205,9 @@ AUM-ALERT {"text": "claude · a\\"b \\u73b0\\u5728\\u53ef\\u7528"}
 check("alerts_empty", alertTexts(Data()), [])
 check("alerts_crlf", alertTexts(Data("motd\r\nAUM-ALERT {\"text\": \"x\"}\r\n".utf8)), ["x"])
 check("alerts_no_newline", alertTexts(Data(#"AUM-ALERT {"text": "x"}"#.utf8)), ["x"])
+// The line goes back to record-alerts verbatim, add and remove included.
+let full = #"AUM-ALERT {"text": "x", "add": [{"name": "cx"}], "remove": []}"#
+check("alerts_line", alertLines(Data("motd\r\n\(full)\r\n".utf8)), [AlertLine(text: "x", line: full)])
 
 if failures > 0 {
     print("\(failures) failed")
