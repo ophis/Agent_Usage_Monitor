@@ -1,3 +1,5 @@
+> The spike code this report describes was removed after M1; it is in git history at commit 315af6e (`spike/clt-widget/`). The product build in `macos/` and the `Makefile` replaced it.
+
 # Spike: CLT-only WidgetKit widget (TASK-573)
 
 Can `swiftc` + the Command Line Tools (CLT) SDK, with no Xcode and no signing certificate, build an ad-hoc-signed host app plus WidgetKit extension that macOS shows, that reads `~/.local/state/quotaboard/`, and that opens its host app on click? The answer picks M1's build: pass → `make` with `swiftc` + CLT; fail → Xcode project + `xcodebuild` with ad-hoc signing.
