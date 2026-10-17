@@ -126,8 +126,12 @@ struct AccountList: View {
         }
     }
 
-    // Compact: just wider than `claude` in the title font (49 pt), so the bars get the rest.
-    private var titleWidth: CGFloat { compact ? 52 : width * 0.34 }
+    // Compact: just wider than `claude` in the title font (49 pt), so the bars get the rest;
+    // while a stale row shows, wide enough for `⚠ claude` (67 pt), keeping the columns aligned.
+    private var titleWidth: CGFloat {
+        guard compact else { return width * 0.34 }
+        return display.rows.contains { $0.title.hasPrefix("⚠") } ? 68 : 52
+    }
     private let gap = 6.0
     /// Compact: the 5H and the 7D column, each a bar with its reset under its right end.
     private var slot: CGFloat { (width - titleWidth - 2 * gap) / 2 }
