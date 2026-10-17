@@ -2,7 +2,7 @@ import os
 import unittest
 
 from agent_usage_monitor import accounts
-from tests.helpers import Env
+from tests.helpers import ROOT, Env
 
 
 class LoadTest(unittest.TestCase):
@@ -125,6 +125,18 @@ class LoadTest(unittest.TestCase):
         ]})
         _, accts, _ = self.load()
         self.assertEqual([a.account for a in accts], ["you@example.com", "you@example.com", None])
+
+    def test_example_file(self):
+        for n in (".claude", ".claude-work", ".codex"):
+            self.env.mkdir(n)
+        with open(os.path.join(ROOT, "accounts.example.json"), encoding="utf-8") as f:
+            self.env.write_accounts(f.read())
+        home = os.path.realpath(self.env.home)
+        self.assertEqual(self.load(), (90, [
+            accounts.Account("claude", "claude", os.path.join(home, ".claude"), "you@example.com"),
+            accounts.Account("claude-work", "claude", os.path.join(home, ".claude-work"), "work@example.com"),
+            accounts.Account("codex", "codex", os.path.join(home, ".codex"), "you@example.com"),
+        ], None))
 
     def test_invalid_account(self):
         self.env.mkdir("a")
