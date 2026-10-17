@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import time
 import unittest
@@ -28,11 +29,14 @@ class AlertsTest(unittest.TestCase):
         self.addCleanup(self.env.cleanup)
         self.accounts = [Account("claude-max", "claude", "/d/max", "you@example.com"), Account("cx", "codex", "/d/cx")]
 
-    def write(self, updates=None, now=NOW, threshold=90, emit=True, accounts=None):
+    def write(self, updates=None, now=NOW, threshold=90, emit=True, accounts=None, delivered=True):
+        """One collect; the host hands every alert to macOS unless delivered is False. Returns the texts."""
         sent = []
         store.write(self.env.state, self.accounts if accounts is None else accounts, threshold, updates or {},
                     now=now, emit=sent.append if emit else None)
-        return sent
+        if delivered and sent:
+            self.assertEqual(store.record(self.env.state, sent), [])
+        return [a["text"] for a in sent]
 
     def notified(self):
         return self.env.snapshot()["notified"]
@@ -146,6 +150,39 @@ class AlertsTest(unittest.TestCase):
         for garbage in ("x", [1, {"name": 2}, {"name": "cx"}], None):
             self.seed({"cx": {"five_hour": w(92, NOW + H)}}, garbage)
             self.assertEqual(len(self.write()), 1, garbage)
+
+    def test_not_delivered_not_recorded_resent(self):
+        updates = {"cx": {"five_hour": w(92, NOW + H)}}
+        self.assertEqual(len(self.write(updates, delivered=False)), 1)
+        self.assertEqual(self.notified(), [])
+        self.assertEqual(len(self.write(now=NOW + 300)), 1, "sent again")
+        self.assertEqual(self.notified(), [self.full("cx", "five_hour", NOW + H, NOW + 300)])
+        self.assertEqual(self.write(now=NOW + 600), [])
+        self.assertEqual(self.write(now=NOW + 900), [])
+
+    def test_available_again_not_delivered_keeps_keys(self):
+        key = self.full("cx", "five_hour", NOW - 60, NOW - 8 * DAY)
+        self.seed({"cx": {"five_hour": w(10, NOW + H), "seven_day": w(10, NOW + DAY)}}, [key])
+        self.assertEqual(self.write(delivered=False), ["codex · cx 现在可用"])
+        self.assertEqual(self.notified(), [key], "kept, though older than 7 days")
+        self.assertEqual(self.write(), ["codex · cx 现在可用"])
+        self.assertEqual(self.notified(), [])
+
+    def test_record_dedupes_and_ignores_unknown_keys(self):
+        sent = []
+        store.write(self.env.state, self.accounts, 90, {"cx": {"five_hour": w(92, NOW + H)}}, now=NOW, emit=sent.append)
+        self.assertEqual(store.record(self.env.state, sent + sent), [])
+        self.assertEqual(self.notified(), [self.full("cx", "five_hour", NOW + H)])
+        store.record(self.env.state, [dict(sent[0], add=[dict(sent[0]["add"][0], resets_at=NOW + H + 60, sent_at=NOW + 1)])])
+        self.assertEqual(len(self.notified()), 1, "same reset within 10 minutes")
+        store.record(self.env.state, [{"text": "x", "add": [{"name": "cx"}, "s"], "remove": "x"}, {"text": "y"}, "z"])
+        self.assertEqual(self.notified(), [self.full("cx", "five_hour", NOW + H)])
+
+    def test_record_without_snapshot(self):
+        lines = store.record(self.env.state, [{"text": "x", "add": [self.full("cx", "five_hour", None)], "remove": []}])
+        self.assertEqual(len(lines), 1)
+        self.assertIn("not recorded", lines[0])
+        self.assertFalse(os.path.exists(self.env.snapshot_path))
 
     def test_without_emit_no_evaluation(self):
         self.assertEqual(self.write({"cx": {"five_hour": w(92, NOW + H)}}, emit=False), [])

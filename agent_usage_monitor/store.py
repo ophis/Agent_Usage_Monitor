@@ -1,5 +1,6 @@
-"""Snapshot store (FR-5 to FR-7): the one function that writes snapshot.json."""
+"""Snapshot store (FR-5 to FR-7): the one module that writes snapshot.json."""
 
+import contextlib
 import fcntl
 import json
 import os
@@ -69,18 +70,39 @@ def ensure_dir(directory):
         os.chmod(directory, 0o700)
 
 
+@contextlib.contextmanager
+def _locked(directory):
+    ensure_dir(directory)
+    lock = os.open(os.path.join(directory, "snapshot.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(lock)
+
+
+def _replace(directory, snap):
+    fd, tmp = tempfile.mkstemp(dir=directory, prefix=".snapshot.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(snap, indent=1))
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, snapshot_path(directory))
+    except BaseException:
+        os.unlink(tmp)
+        raise
+
+
 def write(directory, accounts, threshold, updates, failed=(), now=None, emit=None):
     """Merge one writer's updates into the snapshot under the lock; return warning lines.
 
     updates: {name: {field: value}} collected this run; failed: names whose values this run keeps
-    from the snapshot (probe failed or skipped). emit: called with each alert text once the snapshot
-    recording it is written, still under the lock (FR-1); None decides no alerts.
+    from the snapshot (probe failed or skipped). emit: called with each alert (alerts.evaluate) once the
+    snapshot is written, still under the lock (FR-1); recorded only by a later `record`. None decides no alerts.
     """
-    ensure_dir(directory)
     path = snapshot_path(directory)
-    lock = os.open(os.path.join(directory, "snapshot.lock"), os.O_RDWR | os.O_CREAT, 0o600)
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with _locked(directory):
         old, warning = read(path)
         snap = old or {}
         previous = {row["name"]: row for row in snap.get("accounts", [])}
@@ -102,20 +124,20 @@ def write(directory, accounts, threshold, updates, failed=(), now=None, emit=Non
         now = int(time.time()) if now is None else now
         derive.recompute(snap, threshold, now)
         snap["notified"] = alerts.keys(snap.get("notified"))
-        texts = alerts.evaluate(snap, threshold, now) if emit else []
-
-        fd, tmp = tempfile.mkstemp(dir=directory, prefix=".snapshot.", suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(json.dumps(snap, indent=1))
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp, path)
-        except BaseException:
-            os.unlink(tmp)
-            raise
-        for text in texts:
-            emit(text)
+        found = alerts.evaluate(snap, threshold, now) if emit else []
+        _replace(directory, snap)
+        for alert in found:
+            emit(alert)
         return [warning] if warning else []
-    finally:
-        os.close(lock)
+
+
+def record(directory, sent):
+    """Record in `notified` the alerts the host handed to macOS (TASK-640), under the lock; return warning lines."""
+    path = snapshot_path(directory)
+    with _locked(directory):
+        snap, warning = read(path)
+        if snap is None:
+            return ["agent-usage-monitor: snapshot %s missing or unreadable, sent alerts not recorded" % path]
+        snap["notified"] = alerts.apply(alerts.keys(snap.get("notified")), [a for a in sent if isinstance(a, dict)])
+        _replace(directory, snap)
+        return []

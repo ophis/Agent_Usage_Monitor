@@ -264,7 +264,8 @@ class CollectTest(unittest.TestCase):
 
 
 class EmitAlertsTest(unittest.TestCase):
-    """FR-8, Python side: alerts as `AUM-ALERT ` lines on stdout, recorded in notified (FR-1, FR-9)."""
+    """FR-8, Python side: alerts as `AUM-ALERT ` lines on stdout, recorded in notified (FR-1, FR-9) only once the
+    host passes the delivered lines to `record-alerts` (TASK-640)."""
 
     def setUp(self):
         self.env = Env()
@@ -281,25 +282,51 @@ class EmitAlertsTest(unittest.TestCase):
             self.assertTrue(line.startswith("AUM-ALERT "), line)
         return [json.loads(line[len("AUM-ALERT "):])["text"] for line in lines]
 
-    def test_emit_once_and_recorded(self):
-        texts = self.alerts(self.env.run("collect", "--emit-alerts"))
+    def record(self, stdout):
+        r = self.env.run("record-alerts", input=stdout)
+        self.assertEqual((r.returncode, r.stdout), (0, ""), r.stderr)
+        return r
+
+    def keys(self):
+        return [(k["name"], k["window"], k["kind"], k["resets_at"]) for k in self.env.snapshot()["notified"]]
+
+    def test_delivered_recorded_once(self):
+        r = self.env.run("collect", "--emit-alerts")
+        texts = self.alerts(r)
         self.assertEqual(len(texts), 1)
         self.assertIn("codex · cx 5h 已到 92%", texts[0])
-        self.assertEqual([(k["name"], k["window"], k["kind"], k["resets_at"]) for k in self.env.snapshot()["notified"]],
-                         [("cx", "five_hour", "full", self.later)])
-        self.assertEqual(self.alerts(self.env.run("collect", "--emit-alerts")), [])
+        self.assertEqual(self.keys(), [], "not recorded before the host reports it sent")
+        self.record("login shell noise\n" + r.stdout)
+        self.assertEqual(self.keys(), [("cx", "five_hour", "full", self.later)])
+        for _ in range(2):
+            self.assertEqual(self.alerts(self.env.run("collect", "--emit-alerts")), [])
+
+    def test_not_delivered_sent_again(self):
+        first = self.alerts(self.env.run("collect", "--emit-alerts"))
+        self.assertEqual(self.keys(), [])
+        self.assertEqual(self.alerts(self.env.run("collect", "--emit-alerts")), first)
+
+    def test_record_garbage_lines_skipped(self):
+        self.env.run("collect")
+        r = self.record("AUM-ALERT not json\nAUM-ALERT [1]\n")
+        self.assertEqual(r.stderr.count("agent-usage-monitor: "), 2, r.stderr)
+        self.assertEqual(self.keys(), [])
 
     def test_without_flag_stdout_empty_nothing_recorded(self):
         r = self.env.run("collect")
         self.assertEqual((r.returncode, r.stdout), (0, ""), r.stderr)
         self.assertEqual(self.env.snapshot()["notified"], [])
 
-    def test_two_collects_at_once_one_alert(self):
+    def test_two_collects_at_once_one_key(self):
         procs = [subprocess.Popen(["/usr/bin/python3", BIN, "collect", "--emit-alerts"], env=self.env.environ,
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for _ in range(2)]
         out = [p.communicate(timeout=60)[0] for p in procs]
         self.assertEqual([p.returncode for p in procs], [0, 0])
-        self.assertEqual(len("".join(out).splitlines()), 1, out)
+        self.assertEqual([len(o.splitlines()) for o in out], [1, 1], out)
+        procs = [subprocess.Popen(["/usr/bin/python3", BIN, "record-alerts"], env=self.env.environ,
+                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                 for _ in out]
+        self.assertEqual([p.communicate(o, timeout=60)[0] for p, o in zip(procs, out)], ["", ""])
         self.assertEqual(len(self.env.snapshot()["notified"]), 1)
 
     def test_available_again_without_probing(self):
@@ -316,8 +343,11 @@ class EmitAlertsTest(unittest.TestCase):
         with open(self.env.snapshot_path, "w") as f:
             json.dump(snap, f)
         install_fake_claude(self.env, fail=True)
-        self.assertEqual(self.alerts(self.env.run("collect", "--emit-alerts")), ["claude · claude-max 现在可用"])
+        r = self.env.run("collect", "--emit-alerts")
+        self.assertEqual(self.alerts(r), ["claude · claude-max 现在可用"])
         self.assertEqual(claude_calls(self.env), [])
+        self.assertEqual(len(self.env.snapshot()["notified"]), 1, "kept until delivered")
+        self.record(r.stdout)
         self.assertEqual(self.env.snapshot()["notified"], [])
 
 

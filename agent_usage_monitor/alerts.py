@@ -1,4 +1,8 @@
-"""M2 alerts (FR-1 to FR-3, FR-9): decided from the snapshot inside store.write, deduped in its `notified`."""
+"""M2 alerts (FR-1 to FR-3, FR-9): decided from the snapshot inside store.write, deduped in its `notified`.
+
+An alert is {"text", "add": [key], "remove": [key]}: the `notified` change that `apply` makes once the host has
+handed it to macOS (TASK-640); until then nothing is recorded, so the next collect decides it again.
+"""
 
 import time
 
@@ -39,9 +43,9 @@ def _reset_text(at, now):
 
 
 def evaluate(snap, threshold, now):
-    """Update snap["notified"] in place and return this run's alert texts, in row order."""
+    """Return this run's alerts, in row order; snap["notified"] is only pruned."""
     notified = keys(snap.get("notified"))
-    texts = []
+    found = []
     for row in snap["accounts"]:
         label = "%s · %s" % (row["client"], row.get("account") or row["name"])
         mine = [k for k in notified if k["name"] == row["name"]]
@@ -54,8 +58,7 @@ def evaluate(snap, threshold, now):
 
         done = [k for k in mine if ended(k)]
         if row["available"] is True and done:
-            texts.append("%s 现在可用" % label)
-            notified = [k for k in notified if k not in done]
+            found.append({"text": "%s 现在可用" % label, "add": [], "remove": done})
             mine = [k for k in mine if k not in done]
         for window in derive.WINDOWS:
             w = row.get(window)
@@ -63,10 +66,22 @@ def evaluate(snap, threshold, now):
                 continue
             if any(k["window"] == window and _same_reset(k["resets_at"], w["resets_at"]) for k in mine):
                 continue
-            notified.append({"name": row["name"], "window": window, "kind": "full", "resets_at": w["resets_at"],
-                             "sent_at": now})
-            texts.append("%s %s 已到 %d%%，%s" % (label, LABELS[window], w["used_percent"],
-                                                _reset_text(w["resets_at"], now)))
-    # pruned last, so a key older than 7 days still ends in its available-again alert (Mac asleep that long)
-    snap["notified"] = [k for k in notified if now - k["sent_at"] <= KEEP]
-    return texts
+            key = {"name": row["name"], "window": window, "kind": "full", "resets_at": w["resets_at"], "sent_at": now}
+            found.append({"text": "%s %s 已到 %d%%，%s" % (label, LABELS[window], w["used_percent"],
+                                                        _reset_text(w["resets_at"], now)), "add": [key], "remove": []})
+    # a key older than 7 days still ends in its available-again alert (Mac asleep that long), until it is delivered
+    removing = [k for a in found for k in a["remove"]]
+    snap["notified"] = [k for k in notified if now - k["sent_at"] <= KEEP or k in removing]
+    return found
+
+
+def apply(notified, sent):
+    """notified after the alerts in `sent` (as parsed back from the host) were handed to macOS."""
+    for alert in sent:
+        remove = keys(alert.get("remove"))
+        notified = [k for k in notified if k not in remove]
+        for key in keys(alert.get("add")):
+            if not any(k["name"] == key["name"] and k["window"] == key["window"]
+                       and _same_reset(k["resets_at"], key["resets_at"]) for k in notified):
+                notified.append(key)
+    return notified
