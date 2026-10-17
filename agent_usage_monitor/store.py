@@ -6,7 +6,7 @@ import os
 import tempfile
 import time
 
-from agent_usage_monitor import derive
+from agent_usage_monitor import alerts, derive
 from agent_usage_monitor.accounts import home
 
 SCHEMA = 1
@@ -69,11 +69,12 @@ def ensure_dir(directory):
         os.chmod(directory, 0o700)
 
 
-def write(directory, accounts, threshold, updates, failed=(), now=None):
+def write(directory, accounts, threshold, updates, failed=(), now=None, emit=None):
     """Merge one writer's updates into the snapshot under the lock; return warning lines.
 
     updates: {name: {field: value}} collected this run; failed: names whose values this run keeps
-    from the snapshot (probe failed or skipped).
+    from the snapshot (probe failed or skipped). emit: called with each alert text once the snapshot
+    recording it is written, still under the lock (FR-1); None decides no alerts.
     """
     ensure_dir(directory)
     path = snapshot_path(directory)
@@ -98,7 +99,10 @@ def write(directory, accounts, threshold, updates, failed=(), now=None):
             rows.append(row)
         snap["accounts"] = rows
         snap["schema"] = SCHEMA
-        derive.recompute(snap, threshold, int(time.time()) if now is None else now)
+        now = int(time.time()) if now is None else now
+        derive.recompute(snap, threshold, now)
+        snap["notified"] = alerts.keys(snap.get("notified"))
+        texts = alerts.evaluate(snap, threshold, now) if emit else []
 
         fd, tmp = tempfile.mkstemp(dir=directory, prefix=".snapshot.", suffix=".tmp")
         try:
@@ -110,6 +114,8 @@ def write(directory, accounts, threshold, updates, failed=(), now=None):
         except BaseException:
             os.unlink(tmp)
             raise
+        for text in texts:
+            emit(text)
         return [warning] if warning else []
     finally:
         os.close(lock)

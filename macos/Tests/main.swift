@@ -180,7 +180,8 @@ let valid = load("""
    "fetched_at": \(t - 120), "source": "app-server", "stale": false, "usage_disabled_version": null},
   {"name": "old", "five_hour": null, "seven_day": null},
   {"name": "mail", "client": "claude", "account": "you@example.com", "five_hour": null, "seven_day": null}],
- "summary": {"available": [], "next": {"name": "codex", "at": \(t + 3600)}}}
+ "summary": {"available": [], "next": {"name": "codex", "at": \(t + 3600)}},
+ "notified": [{"name": "codex", "window": "seven_day", "kind": "full", "resets_at": \(t + 3600), "sent_at": \(t - 120)}]}
 """)
 check("load_valid", valid.map { rows($0, now: t) }, [
     DisplayRow(title: "codex", client: "codex", bars: [Bar(label: "7D", percent: 93, reset: "resets in 1h 0m")]),

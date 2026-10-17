@@ -122,7 +122,7 @@ class CollectTest(unittest.TestCase):
         self.env.mkdir(".claude")
         self.collect()
         snap = self.env.snapshot()
-        self.assertEqual(set(snap), {"schema", "generated_at", "threshold", "accounts", "summary"})
+        self.assertEqual(set(snap), {"schema", "generated_at", "threshold", "accounts", "summary", "notified"})
         self.assertEqual(snap["schema"], 1)
         self.assertIsInstance(snap["generated_at"], int)
         for row in snap["accounts"]:
