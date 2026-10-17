@@ -67,7 +67,7 @@ make check                 # all of the above, then plist lint, signature, widge
 bin/agent-usage-monitor collect     # read every account, write the snapshot (what the LaunchAgent and a widget click run)
 ```
 
-CI ([`.github/workflows/check.yml`](.github/workflows/check.yml)) runs `make check` on a macOS 26 runner with the Command Line Tools for every pull request and push to `main`.
+CI ([`.github/workflows/check.yml`](.github/workflows/check.yml)) runs `make check` on a macOS 26 runner with the Command Line Tools for every pull request and push to `main`. On a pull request it first runs the pre-push scan below on the pull request's commits (`tests/pii_scan.py --commits`): their author and committer emails, messages and files, so a push that skipped the hook is still caught.
 
 The repo is public, so personal data is caught before a push: after `make hooks`, [`.githooks/pre-push`](.githooks/pre-push) runs [`tests/pii_scan.py`](tests/pii_scan.py) on the files, commit messages and author and committer emails the push would publish, and refuses the push on a hit. Commit with your GitHub noreply address as `user.email`. A value that may be public goes in [`tests/pii-allowlist.txt`](tests/pii-allowlist.txt) with its reason, with `in:identity` when it may only be a commit author or committer email, and as `sha256:<hex>` of the lowercased value when no file may hold it; explain each new entry in its pull request.
 
