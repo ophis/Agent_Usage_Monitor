@@ -128,6 +128,14 @@ class AlertsTest(unittest.TestCase):
         self.assertEqual(self.write(now=NOW + H + 60), [])
         self.assertEqual(len(self.notified()), 1)
 
+    def test_available_again_after_sleep_past_7_days(self):
+        sent = NOW - 7 * DAY - H
+        self.seed({"claude-max": {"five_hour": w(10, NOW + H), "seven_day": w(30, NOW + 6 * DAY)}},
+                  [self.full("claude-max", "seven_day", sent + 6 * DAY, sent)])
+        # asleep from before the 7d reset until after the key turned 7 days old
+        self.assertEqual(self.write(), ["claude · you@example.com 现在可用"])
+        self.assertEqual(self.notified(), [])
+
     def test_prune_after_7_days(self):
         self.seed({"cx": {"five_hour": w(10, NOW + H)}}, [
             self.full("old", "five_hour", None, NOW - 8 * DAY), self.full("cx", "seven_day", None, NOW - 6 * DAY)])

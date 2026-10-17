@@ -40,7 +40,7 @@ def _reset_text(at, now):
 
 def evaluate(snap, threshold, now):
     """Update snap["notified"] in place and return this run's alert texts, in row order."""
-    notified = [k for k in keys(snap.get("notified")) if now - k["sent_at"] <= KEEP]
+    notified = keys(snap.get("notified"))
     texts = []
     for row in snap["accounts"]:
         label = "%s · %s" % (row["client"], row.get("account") or row["name"])
@@ -67,5 +67,6 @@ def evaluate(snap, threshold, now):
                              "sent_at": now})
             texts.append("%s %s 已到 %d%%，%s" % (label, LABELS[window], w["used_percent"],
                                                 _reset_text(w["resets_at"], now)))
-    snap["notified"] = notified
+    # pruned last, so a key older than 7 days still ends in its available-again alert (Mac asleep that long)
+    snap["notified"] = [k for k in notified if now - k["sent_at"] <= KEEP]
     return texts
