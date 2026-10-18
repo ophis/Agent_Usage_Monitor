@@ -68,17 +68,19 @@ struct AgentUsageMonitorView: View {
     }
 }
 
-/// TASK-654: opens the settings window; the rest of the widget refreshes. One glyph past the content's bottom-right
-/// corner, in the content margin, so it takes no account's room in `fit` and covers no text.
+/// TASK-654: opens the settings window; the rest of the widget refreshes. Right-aligned with the percents, just under
+/// the content in the bottom margin, clear of the rounded corner: medium has no free row for it (3 accounts use
+/// 122 of 123 pt), so it takes no account's room in `fit`.
 struct SettingsGear: View {
     private let size = 10.0
+    private let gap = 2.0
 
     var body: some View {
         Link(destination: URL(string: "agent-usage-monitor://settings")!) {
             Image(systemName: "gearshape").font(.system(size: size)).foregroundStyle(.secondary)
         }
         .frame(width: size, height: size)
-        .offset(x: size, y: size)
+        .offset(y: size + gap)
     }
 }
 
