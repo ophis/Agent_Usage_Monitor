@@ -283,7 +283,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "Agent Usage Monitor 设置"
         window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: SettingsView(model: model))
+        let hosting = NSHostingView(rootView: SettingsView(model: model))
+        window.contentView = hosting
+        window.setContentSize(hosting.fittingSize)
         window.delegate = self
         window.center()
         window.makeKeyAndOrderFront(nil)

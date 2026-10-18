@@ -99,7 +99,6 @@ struct SettingsView: View {
                     Text("用量到这个百分比时提醒，并算作不可用").font(.callout).foregroundStyle(.secondary)
                 }
             }
-            Spacer(minLength: 0)
             HStack {
                 if let problem = model.problem {
                     Text(problem).foregroundStyle(.red)
@@ -114,7 +113,11 @@ struct SettingsView: View {
             }
         }
         .padding(20)
-        .frame(minWidth: 860, minHeight: 360, alignment: .topLeading)
+        .frame(minWidth: 860, minHeight: 200, alignment: .topLeading)
+        // The content's own height, so the window grows and shrinks with the rows instead of clipping or leaving space.
+        .fixedSize(horizontal: false, vertical: true)
+        // The system colour, so the view is opaque in light and dark appearance, also when rendered on its own.
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private var table: some View {
