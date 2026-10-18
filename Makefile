@@ -26,7 +26,8 @@ hooks:
 
 swift-test:
 	mkdir -p build
-	xcrun swiftc macos/Widget/Snapshot.swift macos/Host/Alerts.swift macos/Tests/main.swift -o build/swift-test
+	xcrun swiftc macos/Widget/Snapshot.swift macos/Host/Alerts.swift macos/Host/Settings.swift macos/Tests/main.swift \
+		-o build/swift-test
 	build/swift-test
 
 app:
@@ -40,7 +41,8 @@ app:
 	# A new build version each build, so macOS sees an install as a new build of the app and widget.
 	V=$$(date +%s) && plutil -replace CFBundleVersion -string "$$V" $(APP)/Contents/Info.plist && \
 		plutil -replace CFBundleVersion -string "$$V" $(APPEX)/Contents/Info.plist
-	xcrun swiftc -O macos/Host/Alerts.swift macos/Host/main.swift -o $(APP)/Contents/MacOS/AgentUsageMonitor
+	xcrun swiftc -O macos/Host/Alerts.swift macos/Host/Settings.swift macos/Host/SettingsView.swift macos/Host/main.swift \
+		-o $(APP)/Contents/MacOS/AgentUsageMonitor
 	xcrun swiftc -O -parse-as-library -application-extension macos/Widget/Snapshot.swift macos/Widget/AgentUsageMonitorWidget.swift \
 		-Xlinker -e -Xlinker _NSExtensionMain -o $(APPEX)/Contents/MacOS/AgentUsageMonitorWidget
 	codesign --force -s - --entitlements macos/Widget/widget.entitlements $(APPEX)

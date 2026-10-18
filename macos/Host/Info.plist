@@ -20,5 +20,16 @@
 	<string>1</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.ophis.agent-usage-monitor.refresh</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>agent-usage-monitor</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

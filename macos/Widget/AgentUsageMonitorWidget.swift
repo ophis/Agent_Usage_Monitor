@@ -45,7 +45,7 @@ struct AgentUsageMonitorView: View {
     @Environment(\.widgetFamily) private var family
 
     var body: some View {
-        // No widgetURL or Link: a tap anywhere opens the host app (FR-28).
+        // A tap anywhere opens the host app with this URL (FR-28), which tells it from the user opening the app (TASK-645).
         Group {
             if let rows = entry.rows {
                 // The accounts that fit the real content height, so the size is measured, not assumed per family.
@@ -61,6 +61,7 @@ struct AgentUsageMonitorView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .widgetURL(URL(string: "agent-usage-monitor://refresh"))
         .containerBackground(for: .widget) { CardBackground(systemDark: scheme == .dark) }
         .environment(\.colorScheme, .dark)
     }
