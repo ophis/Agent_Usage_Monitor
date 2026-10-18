@@ -25,7 +25,6 @@ struct AccountRow: Codable, Identifiable, Equatable {
 }
 
 struct AccountsFile: Decodable {
-    let path: String
     /// FR-9: the file cannot be shown; `accounts` then holds the defaults.
     let error: String?
     let threshold: Double

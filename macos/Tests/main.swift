@@ -242,13 +242,13 @@ check("settings_none", opensSettings(xpcServiceName: nil, openedURL: false), fal
 // read-accounts output: the last line, after anything the login shell prints
 let read = lastLine(AccountsFile.self, Data("""
 Last login: Mon
-{"path": "~/.config/agent-usage-monitor/accounts.json", "error": null, "threshold": 85, "original": "{\\"x\\": 1}", "accounts": [{"name": "work", "client": "claude", "dir": "~/.claude-example", "account": "you@example.com", "original": "{\\"note\\": 1}"}]}
+{"error": null, "threshold": 85, "original": "{\\"x\\": 1}", "accounts": [{"name": "work", "client": "claude", "dir": "~/.claude-example", "account": "you@example.com", "original": "{\\"note\\": 1}"}]}
 
 """.utf8))
 check("read_threshold", read?.threshold, 85)
 check("read_rows", read?.accounts.map { [$0.name, $0.client, $0.dir, $0.account, $0.original] },
       [["work", "claude", "~/.claude-example", "you@example.com", #"{"note": 1}"#]])
-check("read_error", lastLine(AccountsFile.self, Data(#"{"path": "p", "error": "bad", "threshold": 90, "original": "{}", "accounts": []}"#.utf8))?.error, "bad")
+check("read_error", lastLine(AccountsFile.self, Data(#"{"error": "bad", "threshold": 90, "original": "{}", "accounts": []}"#.utf8))?.error, "bad")
 check("read_garbage", lastLine(AccountsFile.self, Data("zsh: no such file\n".utf8)) == nil, true)
 
 // write-accounts input: the rows' fields and original, not the window's id or problem

@@ -5,7 +5,6 @@ import SwiftUI
 // TASK-645: the settings window, FR-3 to FR-9. The host does the reading and writing (main.swift); this is the editor.
 
 @Observable final class SettingsModel {
-    var path = ""
     /// FR-9: why the file cannot be shown; editing waits for 用默认值重新开始.
     var error: String?
     var loaded = false
@@ -19,7 +18,6 @@ import SwiftUI
     @ObservationIgnored var onSave: () -> Void = {}
 
     func show(_ file: AccountsFile) {
-        path = file.path
         error = file.error
         threshold = file.threshold
         rows = file.accounts
@@ -74,7 +72,6 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("配置文件：\(model.path)").font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
             if !model.loaded {
                 ProgressView("正在读取…")
             } else if let error = model.error {

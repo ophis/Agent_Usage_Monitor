@@ -133,7 +133,8 @@ def editable(environ):
     """The settings window's view of the file (TASK-645 FR-5, FR-9): defaults when it is missing; defaults and an
     error, the file left alone, when it is not a list the window can show."""
     path = config_path(environ)
-    view = {"path": abbreviate(path, environ), "error": None, "threshold": DEFAULT_THRESHOLD, "original": "{}",
+    shown = abbreviate(path, environ)
+    view = {"error": None, "threshold": DEFAULT_THRESHOLD, "original": "{}",
             "accounts": [{"name": a.name, "client": a.client, "dir": abbreviate(a.dir, environ), "account": "",
                           "original": "{}"} for a in defaults(environ)]}
     try:
@@ -142,14 +143,14 @@ def editable(environ):
     except FileNotFoundError:
         return view
     except (OSError, UnicodeDecodeError, ValueError, RecursionError) as e:
-        return dict(view, error="%s: %s" % (view["path"], e))
+        return dict(view, error="%s: %s" % (shown, e))
     items = data.get("accounts", []) if isinstance(data, dict) else None
     if (not isinstance(items, list) or isinstance(data.get("threshold", DEFAULT_THRESHOLD), bool)
             or not isinstance(data.get("threshold", DEFAULT_THRESHOLD), (int, float))
             or not all(isinstance(item, dict) and all(isinstance(item.get(k, ""), str) for k in FIELDS)
                        for item in items)):
         return dict(view, error="%s: expected an object with a number threshold and accounts, a list of objects "
-                                "whose %s are strings" % (view["path"], ", ".join(FIELDS)))
+                                "whose %s are strings" % (shown, ", ".join(FIELDS)))
     rows = [dict({k: item.get(k, "") for k in FIELDS}, dir=abbreviate(item.get("dir", ""), environ),
                  original=json.dumps(item)) for item in items]
     return dict(view, threshold=data.get("threshold", DEFAULT_THRESHOLD), accounts=rows, original=json.dumps(data))

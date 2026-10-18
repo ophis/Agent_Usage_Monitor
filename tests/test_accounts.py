@@ -222,7 +222,6 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(view["threshold"], 85)
         self.assertEqual(view["accounts"], [self.row("a", "codex", "~/a", "you@example.com", json.dumps(item))])
         self.assertEqual(json.loads(view["original"])["extra"], True)
-        self.assertTrue(view["path"].startswith("~/") or view["path"] == self.path)
 
     def test_editable_unparsable_left_alone(self):
         self.env.mkdir(".codex")
@@ -233,7 +232,7 @@ class SettingsTest(unittest.TestCase):
                 with open(self.path, "rb") as f:
                     before = f.read()
                 view = accounts.editable(self.env.environ)
-                self.assertTrue(view["error"])
+                self.assertIn("accounts.json", view["error"])
                 self.assertEqual(view["accounts"], [self.row("codex", "codex", "~/.codex")])
                 self.assertEqual(view["original"], "{}")
                 with open(self.path, "rb") as f:

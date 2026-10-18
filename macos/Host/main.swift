@@ -279,6 +279,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
             window.makeKeyAndOrderFront(nil)
             return
         }
+        NSApp.mainMenu = settingsMenu()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 420),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "Agent Usage Monitor 设置"
@@ -320,6 +321,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
                 self.model.problem = "保存失败" + (status.map { "（exit \($0)）" } ?? "") + "，文件没有改动"
             }
         }
+    }
+
+    /// Text fields get Cmd+X, C, V, A and Z only from the main menu's key equivalents, and this app has no nib.
+    private func settingsMenu() -> NSMenu {
+        func item(_ title: String, _ action: Selector, _ key: String, _ mask: NSEvent.ModifierFlags = .command) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            item.keyEquivalentModifierMask = mask
+            return item
+        }
+        let quit = item("退出 Agent Usage Monitor", #selector(quit(_:)), "q")
+        quit.target = self
+        let menu = NSMenu()
+        for (title, items) in [
+            ("Agent Usage Monitor", [quit]),
+            ("文件", [item("关闭", #selector(NSWindow.performClose(_:)), "w")]),
+            ("编辑", [item("撤销", Selector(("undo:")), "z"), item("重做", Selector(("redo:")), "z", [.command, .shift]),
+                      .separator(), item("剪切", #selector(NSText.cut(_:)), "x"), item("拷贝", #selector(NSText.copy(_:)), "c"),
+                      item("粘贴", #selector(NSText.paste(_:)), "v"), item("全选", #selector(NSText.selectAll(_:)), "a")]),
+        ] {
+            let top = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            top.submenu = NSMenu(title: title)
+            items.forEach { top.submenu?.addItem($0) }
+            menu.addItem(top)
+        }
+        return menu
+    }
+
+    /// Quit goes the way of closing the window, so a running collect still records its alerts.
+    @objc private func quit(_ sender: Any?) {
+        if let window = settings { window.close() } else { NSApp.terminate(nil) }
     }
 
     /// FR-1: closing the window ends the app, once a running collect has handed its alerts to macOS.
