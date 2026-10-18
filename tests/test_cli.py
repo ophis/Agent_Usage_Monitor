@@ -351,5 +351,47 @@ class EmitAlertsTest(unittest.TestCase):
         self.assertEqual(self.env.snapshot()["notified"], [])
 
 
+class SettingsCliTest(unittest.TestCase):
+    """TASK-645: read-accounts and write-accounts, the settings window's way to accounts.json."""
+
+    def setUp(self):
+        self.env = Env()
+        self.addCleanup(self.env.cleanup)
+
+    def test_read_one_json_line(self):
+        self.env.mkdir(".codex")
+        r = self.env.run("read-accounts")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(len(r.stdout.splitlines()), 1)
+        self.assertEqual([a["name"] for a in json.loads(r.stdout)["accounts"]], ["codex"])
+
+    def test_write(self):
+        self.env.mkdir("a")
+        row = {"name": "a", "client": "codex", "dir": "~/a", "account": "", "original": "{}"}
+        r = self.env.run("write-accounts", input=json.dumps({"threshold": 85, "accounts": [row], "original": "{}"}))
+        self.assertEqual((r.returncode, r.stdout), (0, ""), r.stderr)
+        self.collect_reads_it()
+
+        r = self.env.run("write-accounts", input=json.dumps(
+            {"threshold": 85, "accounts": [row, dict(row, dir="~/nope")], "original": "{}"}))
+        self.assertEqual(r.returncode, 1)
+        problems = json.loads(r.stdout)["problems"]
+        self.assertEqual([p["index"] for p in problems], [1])
+        self.assertIn("duplicate", problems[0]["message"])
+
+        for bad in ("", "[]", '{"threshold": 85}', '{"threshold": 85, "accounts": [{}], "original": "{}"}'):
+            with self.subTest(bad=bad):
+                r = self.env.run("write-accounts", input=bad)
+                self.assertEqual(r.returncode, 2)
+                self.assertIn("write-accounts", r.stderr)
+        self.collect_reads_it()
+
+    def collect_reads_it(self):
+        install_fake_codex(self.env, os.path.join(self.env.home, "a"), result=rate_limits())
+        r = self.env.run("collect")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.env.snapshot()["threshold"], 85)
+
+
 if __name__ == "__main__":
     unittest.main()

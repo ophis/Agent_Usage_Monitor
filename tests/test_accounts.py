@@ -1,3 +1,4 @@
+import json
 import os
 import unittest
 
@@ -156,6 +157,163 @@ class LoadTest(unittest.TestCase):
     def test_threshold_invalid(self):
         for bad in (0, 101, -1, "90", True, None):
             self.assert_invalid({"threshold": bad, "accounts": []}, "threshold")
+
+
+class SettingsTest(unittest.TestCase):
+    """TASK-645: the settings window reads and writes the list with collect's rules."""
+
+    def setUp(self):
+        self.env = Env()
+        self.addCleanup(self.env.cleanup)
+        self.path = accounts.config_path(self.env.environ)
+
+    def row(self, name, client, dir, account="", original="{}"):
+        return {"name": name, "client": client, "dir": dir, "account": account, "original": original}
+
+    def save(self, rows, threshold=90, original="{}"):
+        return accounts.save(self.env.environ, {"threshold": threshold, "accounts": rows, "original": original})
+
+    def read_file(self):
+        with open(self.path, encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_validate_one_problem_per_row(self):
+        self.env.mkdir("a")
+        self.env.mkdir("b")
+        os.symlink(os.path.join(self.env.home, "a"), os.path.join(self.env.home, "alias"))
+        _, accts, problems = accounts.validate({"threshold": 85, "accounts": [
+            {"name": "a", "client": "claude", "dir": "~/a"},
+            {"name": "", "client": "claude", "dir": "~/b"},
+            {"name": "a", "client": "codex", "dir": "~/b"},
+            {"name": "c", "client": "gemini", "dir": "~/b"},
+            {"name": "d", "client": "codex", "dir": "~/nope"},
+            {"name": "e", "client": "codex", "dir": "~/alias"},
+            {"name": "f", "client": "codex", "dir": "~/b"},
+        ]}, self.env.environ)
+        self.assertEqual([a.name for a in accts], ["a", "f"])
+        self.assertEqual([(i, where) for i, where, _ in problems],
+                         [(1, "accounts[1]"), (2, "accounts[2] (a)"), (3, "accounts[3] (c)"),
+                          (4, "accounts[4] (d)"), (5, "accounts[5] (e)")])
+        texts = [p for _, _, p in problems]
+        for i, needle in enumerate(("name", "duplicate name, also accounts[0]", "client", "~/nope", "accounts[0]")):
+            self.assertIn(needle, texts[i])
+
+    def test_validate_top_level(self):
+        _, _, problems = accounts.validate({"threshold": 0, "accounts": {}}, self.env.environ)
+        self.assertEqual([(i, w) for i, w, _ in problems], [(None, None), (None, None)])
+        self.assertIn("threshold", problems[0][2])
+        self.assertIn("accounts", problems[1][2])
+
+    def test_editable_missing_file_defaults(self):
+        self.env.mkdir(".claude")
+        view = accounts.editable(self.env.environ)
+        self.assertIsNone(view["error"])
+        self.assertEqual(view["threshold"], 90)
+        self.assertEqual(view["accounts"], [self.row("claude", "claude", "~/.claude")])
+        self.assertFalse(os.path.exists(self.path))
+        self.assertFalse(os.path.exists(os.path.dirname(self.path)))
+
+    def test_editable_shows_file(self):
+        a = self.env.mkdir("a")
+        item = {"name": "a", "client": "codex", "dir": a, "account": "you@example.com", "note": 1}
+        self.env.write_accounts({"threshold": 85, "accounts": [item], "extra": True})
+        view = accounts.editable(self.env.environ)
+        self.assertIsNone(view["error"])
+        self.assertEqual(view["threshold"], 85)
+        self.assertEqual(view["accounts"], [self.row("a", "codex", "~/a", "you@example.com", json.dumps(item))])
+        self.assertEqual(json.loads(view["original"])["extra"], True)
+
+    def test_editable_unparsable_left_alone(self):
+        self.env.mkdir(".codex")
+        for bad in ("{not json", "[]", {"accounts": {}}, {"accounts": ["x"]}, {"accounts": [{"name": 3}]},
+                    {"threshold": "90", "accounts": []}):
+            with self.subTest(bad=bad):
+                self.env.write_accounts(bad)
+                with open(self.path, "rb") as f:
+                    before = f.read()
+                view = accounts.editable(self.env.environ)
+                self.assertIn("accounts.json", view["error"])
+                self.assertEqual(view["accounts"], [self.row("codex", "codex", "~/.codex")])
+                self.assertEqual(view["original"], "{}")
+                with open(self.path, "rb") as f:
+                    self.assertEqual(f.read(), before)
+
+    def test_editable_file_problems_from_validate(self):
+        """correctness#3: what collect rejects at file level opens as unreadable, with collect's own text."""
+        self.env.mkdir(".codex")
+        for bad, needle in (({"threshold": 80}, "accounts must be a list"),
+                            ({"threshold": 0, "accounts": []}, "threshold must be a number")):
+            with self.subTest(bad=bad):
+                self.env.write_accounts(bad)
+                with self.assertRaises(accounts.AccountsError):
+                    accounts.load(self.env.environ)
+                view = accounts.editable(self.env.environ)
+                self.assertIn(needle, view["error"])
+                self.assertEqual(view["accounts"], [self.row("codex", "codex", "~/.codex")])
+
+    def test_save_keeps_unedited_dir(self):
+        """requirement-fidelity#1: only an edited row's dir is rewritten."""
+        a, b = self.env.mkdir("a"), self.env.mkdir("b")
+        self.env.mkdir("c")
+        self.env.write_accounts({"accounts": [
+            {"name": "a", "client": "claude", "dir": a},
+            {"name": "b", "client": "claude", "dir": b},
+            {"name": "c", "client": "codex", "dir": "~/c"},
+        ]})
+        view = accounts.editable(self.env.environ)
+        rows = view["accounts"]
+        self.assertEqual([r["dir"] for r in rows], ["~/a", "~/b", "~/c"])
+        rows[1]["dir"] = "~/c"
+        rows[2]["dir"] = "~/b"
+        self.assertEqual(self.save(rows, original=view["original"]), [])
+        self.assertEqual([i["dir"] for i in self.read_file()["accounts"]], [a, "~/c", "~/b"])
+
+    def test_save_problems_write_nothing(self):
+        self.env.mkdir("a")
+        cases = [
+            ([self.row("", "claude", "~/a")], "name"),
+            ([self.row("a", "claude", "~/a"), self.row("a", "codex", "~/a")], "duplicate"),
+            ([self.row("a", "claude", "~/nope")], "dir"),
+            ([self.row("a", "gemini", "~/a")], "client"),
+        ]
+        for rows, needle in cases:
+            with self.subTest(needle=needle):
+                problems = self.save(rows)
+                self.assertEqual(len(problems), 1)
+                self.assertEqual(problems[0][0], len(rows) - 1)
+                self.assertIn(needle, problems[0][1])
+                self.assertFalse(os.path.exists(self.path))
+        self.assertEqual(self.save([], threshold=101)[0][0], None)
+
+    def test_save_keeps_unknown_fields_mode_600(self):
+        self.env.mkdir("a")
+        self.env.mkdir("b")
+        item = {"note": "keep", "name": "old", "client": "claude", "dir": "~/a", "account": "you@example.com"}
+        self.env.write_accounts({"comment": "keep", "threshold": 90, "accounts": [item]})
+        os.chmod(self.path, 0o644)
+        original = accounts.editable(self.env.environ)["original"]
+        self.assertEqual(self.save([self.row("b", "codex", "~/b"), self.row("new", "claude", "~/a", original=json.dumps(item))],
+                                   threshold=85.0, original=original), [])
+        data = self.read_file()
+        self.assertEqual(data, {"comment": "keep", "threshold": 85, "accounts": [
+            {"name": "b", "client": "codex", "dir": "~/b"},
+            {"note": "keep", "name": "new", "client": "claude", "dir": "~/a"},
+        ]})
+        self.assertIsInstance(data["threshold"], int)
+        self.assertEqual(os.stat(self.path).st_mode & 0o777, 0o600)
+        self.assertEqual(accounts.load(self.env.environ)[0], 85)
+        self.assertEqual(os.listdir(os.path.dirname(self.path)), ["accounts.json"])
+
+    def test_save_creates_dir_and_follows_link(self):
+        self.env.mkdir("a")
+        self.assertEqual(self.save([self.row("a", "claude", "~/a", "you@example.com")]), [])
+        self.assertEqual(self.read_file()["accounts"][0]["account"], "you@example.com")
+        target = os.path.join(self.env.root, "dotfiles-accounts.json")
+        os.replace(self.path, target)
+        os.symlink(target, self.path)
+        self.assertEqual(self.save([self.row("a", "claude", "~/a")], threshold=70), [])
+        self.assertTrue(os.path.islink(self.path))
+        self.assertEqual(self.read_file()["threshold"], 70)
 
 
 if __name__ == "__main__":

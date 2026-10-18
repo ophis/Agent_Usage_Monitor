@@ -3,6 +3,7 @@
 import collections
 import json
 import os
+import tempfile
 
 # account: a display string such as an email, or None; unlike name it may repeat
 Account = collections.namedtuple("Account", "name client dir account", defaults=(None,))
@@ -30,6 +31,11 @@ def config_path(environ):
     return os.path.join(base, "agent-usage-monitor", "accounts.json")
 
 
+def defaults(environ):
+    dirs = [(name, expand("~/." + name, environ)) for name in CLIENTS]
+    return [Account(name, name, d) for name, d in dirs if os.path.isdir(d)]
+
+
 def load(environ):
     """Return (threshold, [Account], hint); hint is a stderr line or None."""
     path = config_path(environ)
@@ -37,60 +43,155 @@ def load(environ):
         with open(path, encoding="utf-8") as f:
             text = f.read()
     except FileNotFoundError:
-        dirs = [(name, expand("~/." + name, environ)) for name in CLIENTS]
-        accounts = [Account(name, name, d) for name, d in dirs if os.path.isdir(d)]
         hint = ("agent-usage-monitor: no account list at %s; using default accounts in ~/.claude and ~/.codex"
                 % path)
-        return DEFAULT_THRESHOLD, accounts, hint
+        return DEFAULT_THRESHOLD, defaults(environ), hint
     except (OSError, UnicodeDecodeError) as e:
         raise AccountsError("%s: cannot read: %s" % (path, e))
-
-    def fail(problem):
-        return AccountsError("%s: %s" % (path, problem))
-
     try:
         data = json.loads(text)
     except (ValueError, RecursionError) as e:
-        raise fail("not valid JSON: %s" % e)
+        raise AccountsError("%s: not valid JSON: %s" % (path, e))
+    threshold, accounts, problems = validate(data, environ)
+    if problems:
+        _, where, problem = problems[0]
+        raise AccountsError("%s: %s" % (path, "%s: %s" % (where, problem) if where else problem))
+    return threshold, accounts, None
+
+
+def _bad_threshold(threshold):
+    return isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not 0 < threshold <= 100
+
+
+def validate(data, environ):
+    """Return (threshold, [Account], problems), each problem (index or None, where, text); collect stops at the
+    first, the settings window shows each on its row (TASK-645)."""
     if not isinstance(data, dict):
-        raise fail("top level must be an object")
-
+        return DEFAULT_THRESHOLD, [], [(None, None, "top level must be an object")]
+    problems = []
     threshold = data.get("threshold", DEFAULT_THRESHOLD)
-    if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not 0 < threshold <= 100:
-        raise fail("threshold must be a number in (0, 100]")
-
+    if _bad_threshold(threshold):
+        problems.append((None, None, "threshold must be a number in (0, 100]"))
     items = data.get("accounts")
     if not isinstance(items, list):
-        raise fail("accounts must be a list")
+        return threshold, [], problems + [(None, None, "accounts must be a list")]
 
     accounts = []
     seen_names = {}
     seen_dirs = {}
-    for i, item in enumerate(items):
-        where = "accounts[%d]" % i
+
+    def check(i, item):
         if not isinstance(item, dict):
-            raise fail("%s: must be an object" % where)
+            return "must be an object"
         name = item.get("name")
         if not isinstance(name, str) or not name:
-            raise fail("%s: name must be a non-empty string" % where)
-        where = "%s (%s)" % (where, name)
+            return "name must be a non-empty string"
         if name in seen_names:
-            raise fail("%s: duplicate name, also accounts[%d]" % (where, seen_names[name]))
+            return "duplicate name, also accounts[%d]" % seen_names[name]
+        seen_names[name] = i
         client = item.get("client")
         if client not in CLIENTS:
-            raise fail("%s: client must be one of %s" % (where, ", ".join(CLIENTS)))
+            return "client must be one of %s" % ", ".join(CLIENTS)
         raw_dir = item.get("dir")
         if not isinstance(raw_dir, str) or not raw_dir:
-            raise fail("%s: dir must be a non-empty string" % where)
+            return "dir must be a non-empty string"
         real = expand(raw_dir, environ)
         if not os.path.isdir(real):
-            raise fail("%s: dir %s is not an existing directory" % (where, raw_dir))
+            return "dir %s is not an existing directory" % raw_dir
         if real in seen_dirs:
-            raise fail("%s: dir is the same directory as accounts[%d]" % (where, seen_dirs[real]))
+            return "dir is the same directory as accounts[%d]" % seen_dirs[real]
+        seen_dirs[real] = i
         account = item.get("account")
         if "account" in item and (not isinstance(account, str) or not account):
-            raise fail("%s: account must be a non-empty string" % where)
-        seen_names[name] = i
-        seen_dirs[real] = i
+            return "account must be a non-empty string"
         accounts.append(Account(name, client, real, account))
-    return threshold, accounts, None
+        return None
+
+    for i, item in enumerate(items):
+        problem = check(i, item)
+        if problem:
+            where = "accounts[%d]" % i
+            name = item.get("name") if isinstance(item, dict) else None
+            if isinstance(name, str) and name:
+                where = "%s (%s)" % (where, name)
+            problems.append((i, where, problem))
+    return threshold, accounts, problems
+
+
+FIELDS = ("name", "client", "dir", "account")
+
+
+def abbreviate(path, environ):
+    # realpath too: the default dirs come back from expand
+    for h in (home(environ), os.path.realpath(home(environ))):
+        if path == h or path.startswith(h + "/"):
+            return "~" + path[len(h):]
+    return path
+
+
+def editable(environ):
+    """The settings window's view of the file (TASK-645 FR-5, FR-9): defaults when it is missing; defaults and an
+    error, the file left alone, when collect rejects it as a whole or the window cannot show its rows. Problems
+    with one row stay editable, for 保存 to report."""
+    path = config_path(environ)
+    shown = abbreviate(path, environ)
+    view = {"error": None, "threshold": DEFAULT_THRESHOLD, "original": "{}",
+            "accounts": [{"name": a.name, "client": a.client, "dir": abbreviate(a.dir, environ), "account": "",
+                          "original": "{}"} for a in defaults(environ)]}
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.loads(f.read())
+    except FileNotFoundError:
+        return view
+    except (OSError, UnicodeDecodeError, ValueError, RecursionError) as e:
+        return dict(view, error="%s: %s" % (shown, e))
+    file_problems = [problem for i, _, problem in validate(data, environ)[2] if i is None]
+    if file_problems:
+        return dict(view, error="%s: %s" % (shown, "; ".join(file_problems)))
+    items = data["accounts"]
+    if not all(isinstance(item, dict) and all(isinstance(item.get(k, ""), str) for k in FIELDS) for item in items):
+        return dict(view, error="%s: each of accounts must be an object whose %s are strings"
+                                % (shown, ", ".join(FIELDS)))
+    rows = [dict({k: item.get(k, "") for k in FIELDS}, dir=abbreviate(item.get("dir", ""), environ),
+                 original=json.dumps(item)) for item in items]
+    return dict(view, threshold=data.get("threshold", DEFAULT_THRESHOLD), accounts=rows, original=json.dumps(data))
+
+
+def save(environ, request):
+    """Write the settings window's edit (TASK-645 FR-6, FR-7) with collect's rules; return [(index or None, problem)],
+    empty once written. Keys the window does not know stay as they were in `original`."""
+    data = json.loads(request["original"])
+    threshold = request["threshold"]
+    data["threshold"] = int(threshold) if isinstance(threshold, float) and threshold.is_integer() else threshold
+    items = []
+    for row in request["accounts"]:
+        item = json.loads(row["original"])
+        item.update({k: row[k] for k in ("name", "client")})
+        # an unedited row keeps its dir as written, not as editable() shortened it
+        if not (isinstance(item.get("dir"), str) and abbreviate(item["dir"], environ) == row["dir"]):
+            item["dir"] = row["dir"]
+        if row["account"]:
+            item["account"] = row["account"]
+        else:
+            item.pop("account", None)
+        items.append(item)
+    data["accounts"] = items
+    _, _, problems = validate(data, environ)
+    if problems:
+        return [(i, problem) for i, _, problem in problems]
+    # realpath: a symlinked accounts.json stays a link to the file it names
+    path = os.path.realpath(config_path(environ))
+    directory = os.path.dirname(path)
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    # mkstemp: mode 0600; the rename means collect reads the whole old file or the whole new one
+    fd, tmp = tempfile.mkstemp(dir=directory, prefix=".accounts.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        os.unlink(tmp)
+        raise
+    return []

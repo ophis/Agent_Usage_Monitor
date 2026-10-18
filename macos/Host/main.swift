@@ -1,9 +1,10 @@
 import AppKit
+import SwiftUI
 import UserNotifications
 import WidgetKit
 
 // FR-23, FR-24: run `agent-usage-monitor collect`, refresh the widget, exit. M2 FR-8: post the alerts it prints,
-// then record the ones macOS took (TASK-640).
+// then record the ones macOS took (TASK-640). TASK-645: opened by the user, show the settings window instead.
 
 let collectTimeout: TimeInterval = 40
 let killGrace: TimeInterval = 2
@@ -16,6 +17,9 @@ let outputGrace: TimeInterval = 2
 let authTimeout: TimeInterval = 180
 let addTimeout: TimeInterval = 20
 let recordTimeout: TimeInterval = 20
+let settingsTimeout: TimeInterval = 20
+// launchd's runs exit while this host shows the window (one host at a time), so the window's host collects as often.
+let settingsRefresh: TimeInterval = 300
 let settingsHint = "turn them on in 系统设置 › 通知 › Agent Usage Monitor (System Settings › Notifications › Agent Usage Monitor)"
 let logPath = NSHomeDirectory() + "/Library/Logs/agent-usage-monitor.log"
 
@@ -64,18 +68,35 @@ final class Delivery {
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNotificationCenterDelegate {
     private var pendingClick = false
     private var timedOut = false
+    private var running = false
+    private var launched = false
+    private var openedURL = false
+    private var settings: NSWindow?
+    private var settingsTimer: Timer?
+    private let model = SettingsModel()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         UNUserNotificationCenter.current().delegate = self
-        run()
+        launched = true
+        if opensSettings(xpcServiceName: ProcessInfo.processInfo.environment["XPC_SERVICE_NAME"], openedURL: openedURL) {
+            showSettings()
+        } else {
+            refresh()
+        }
     }
 
-    // A widget click while this host runs arrives as a reopen, not a new launch.
+    // A widget click (its widgetURL): on a cold launch this comes before applicationDidFinishLaunching.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        if launched { refresh() } else { openedURL = true }
+    }
+
+    // While this host runs, opening the app from Finder, Spotlight or the Dock arrives as a reopen; a widget click
+    // arrives as a URL only.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        pendingClick = true
+        showSettings()
         return false
     }
 
@@ -85,28 +106,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         completionHandler([.banner, .list])
     }
 
+    private func refresh() {
+        if running { pendingClick = true } else { run() }
+    }
+
     private func run() {
+        running = true
+        timedOut = false
+        cli("collect --emit-alerts", timeout: collectTimeout) { status, output in
+            self.timedOut = status == nil
+            self.finished(output)
+        }
+    }
+
+    /// Runs `agent-usage-monitor <args>`, passing its exit status (nil: did not start or ran over `timeout`) and stdout.
+    /// Through `zsh -l` for the login PATH that has claude and codex, and so the settings window reads and writes the
+    /// accounts.json that collect reads.
+    private func cli(_ args: String, input: Data? = nil, timeout: TimeInterval, done: @escaping (Int32?, Data) -> Void) {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        // zsh -l only for the login PATH that has claude and codex.
-        task.arguments = ["-l", "-c", "exec \"$HOME/.local/bin/agent-usage-monitor\" collect --emit-alerts"]
+        task.arguments = ["-l", "-c", "exec \"$HOME/.local/bin/agent-usage-monitor\" \(args)"]
         let pipe = Pipe()
         task.standardOutput = pipe
+        let stdin = Pipe()
+        if input != nil { task.standardInput = stdin }
         let output = Output()
         output.eof.enter()
-        task.terminationHandler = { _ in
+        var ranOver = false
+        task.terminationHandler = { task in
             DispatchQueue.global().async {
                 _ = output.eof.wait(timeout: .now() + outputGrace)
                 let bytes = output.bytes
-                DispatchQueue.main.async { self.finished(bytes) }
+                DispatchQueue.main.async { done(ranOver ? nil : task.terminationStatus, bytes) }
             }
         }
         do {
             try task.run()
         } catch {
             FileHandle.standardError.write(Data("agent-usage-monitor host: cannot start /bin/zsh: \(error)\n".utf8))
-            finished(Data())
+            done(nil, Data())
             return
+        }
+        if let input = input {
+            try? stdin.fileHandleForWriting.write(contentsOf: input)
+            try? stdin.fileHandleForWriting.close()
         }
         DispatchQueue.global().async {
             let reader = pipe.fileHandleForReading
@@ -118,10 +161,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             output.eof.leave()
         }
         let pid = task.processIdentifier
-        DispatchQueue.main.asyncAfter(deadline: .now() + collectTimeout) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + timeout) {
             guard task.isRunning else { return }
-            self.timedOut = true
-            FileHandle.standardError.write(Data("agent-usage-monitor host: collect ran over \(Int(collectTimeout)) s, stopping it\n".utf8))
+            ranOver = true
+            let name = args.split(separator: " ").first ?? ""
+            FileHandle.standardError.write(Data("agent-usage-monitor host: \(name) ran over \(Int(timeout)) s, stopping it\n".utf8))
             task.terminate()
             DispatchQueue.main.asyncAfter(deadline: .now() + killGrace) {
                 if task.isRunning { kill(pid, SIGKILL) }
@@ -214,15 +258,107 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         deliver(alertLines(output)) { sent in
             self.record(sent) {
                 DispatchQueue.main.asyncAfter(deadline: .now() + exitDelay) {
-                    if self.pendingClick && !self.timedOut {
-                        self.pendingClick = false
+                    let again = self.pendingClick && !self.timedOut
+                    self.pendingClick = false
+                    self.running = false
+                    if again {
                         self.run()
-                    } else {
+                    } else if self.settings == nil {
                         NSApp.terminate(nil)
                     }
                 }
             }
         }
+    }
+
+    /// FR-1: a regular app with a Dock icon while the window shows.
+    private func showSettings() {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate()
+        if let window = settings {
+            window.makeKeyAndOrderFront(nil)
+            return
+        }
+        NSApp.mainMenu = settingsMenu()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 420),
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        window.title = "Agent Usage Monitor 设置"
+        window.isReleasedWhenClosed = false
+        let hosting = NSHostingView(rootView: SettingsView(model: model))
+        window.contentView = hosting
+        window.setContentSize(hosting.fittingSize)
+        window.delegate = self
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        settings = window
+        settingsTimer = Timer.scheduledTimer(withTimeInterval: settingsRefresh, repeats: true) { _ in self.refresh() }
+        model.onSave = { self.save() }
+        cli("read-accounts", timeout: settingsTimeout) { status, output in
+            if status == 0, let file = lastLine(AccountsFile.self, output) {
+                self.model.show(file)
+            } else {
+                self.model.problem = "无法运行 ~/.local/bin/agent-usage-monitor read-accounts"
+                    + (status.map { "（exit \($0)）" } ?? "") + "，请先 make install"
+            }
+        }
+    }
+
+    /// FR-6 to FR-8: write-accounts checks and writes; a written list is collected at once.
+    private func save() {
+        guard let request = try? JSONEncoder().encode(model.request) else { return }
+        model.clearProblems()
+        model.saving = true
+        model.status = "正在保存…"
+        cli("write-accounts", input: request, timeout: settingsTimeout) { status, output in
+            self.model.saving = false
+            if status == 0 {
+                self.model.status = "已保存，正在刷新 widget"
+                self.refresh()
+            } else if status == 1, let result = lastLine(SaveProblems.self, output) {
+                self.model.failed(result.problems)
+            } else {
+                self.model.status = ""
+                self.model.problem = "保存失败" + (status.map { "（exit \($0)）" } ?? "") + "，文件没有改动"
+            }
+        }
+    }
+
+    /// Text fields get Cmd+X, C, V, A and Z only from the main menu's key equivalents, and this app has no nib.
+    private func settingsMenu() -> NSMenu {
+        func item(_ title: String, _ action: Selector, _ key: String, _ mask: NSEvent.ModifierFlags = .command) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            item.keyEquivalentModifierMask = mask
+            return item
+        }
+        let quit = item("退出 Agent Usage Monitor", #selector(quit(_:)), "q")
+        quit.target = self
+        let menu = NSMenu()
+        for (title, items) in [
+            ("Agent Usage Monitor", [quit]),
+            ("文件", [item("关闭", #selector(NSWindow.performClose(_:)), "w")]),
+            ("编辑", [item("撤销", Selector(("undo:")), "z"), item("重做", Selector(("redo:")), "z", [.command, .shift]),
+                      .separator(), item("剪切", #selector(NSText.cut(_:)), "x"), item("拷贝", #selector(NSText.copy(_:)), "c"),
+                      item("粘贴", #selector(NSText.paste(_:)), "v"), item("全选", #selector(NSText.selectAll(_:)), "a")]),
+        ] {
+            let top = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            top.submenu = NSMenu(title: title)
+            items.forEach { top.submenu?.addItem($0) }
+            menu.addItem(top)
+        }
+        return menu
+    }
+
+    /// Quit goes the way of closing the window, so a running collect still records its alerts.
+    @objc private func quit(_ sender: Any?) {
+        if let window = settings { window.close() } else { NSApp.terminate(nil) }
+    }
+
+    /// FR-1: closing the window ends the app, once a running collect has handed its alerts to macOS.
+    func windowWillClose(_ notification: Notification) {
+        settings = nil
+        settingsTimer?.invalidate()
+        NSApp.setActivationPolicy(.accessory)
+        if !running { NSApp.terminate(nil) }
     }
 }
 

@@ -232,6 +232,36 @@ check("alerts_no_newline", alertTexts(Data(#"AUM-ALERT {"text": "x"}"#.utf8)), [
 let full = #"AUM-ALERT {"text": "x", "add": [{"name": "cx"}], "remove": []}"#
 check("alerts_line", alertLines(Data("motd\r\n\(full)\r\n".utf8)), [AlertLine(text: "x", line: full)])
 
+// opensSettings (macos/Host/Settings.swift): only a LaunchServices launch without a URL opens the window (TASK-645)
+check("settings_finder", opensSettings(xpcServiceName: "application.com.ophis.agent-usage-monitor.1.2", openedURL: false), true)
+check("settings_widget", opensSettings(xpcServiceName: "application.com.ophis.agent-usage-monitor.1.2", openedURL: true), false)
+check("settings_launchd", opensSettings(xpcServiceName: "com.ophis.agent-usage-monitor", openedURL: false), false)
+check("settings_terminal", opensSettings(xpcServiceName: "0", openedURL: false), false)
+check("settings_none", opensSettings(xpcServiceName: nil, openedURL: false), false)
+
+// read-accounts output: the last line, after anything the login shell prints
+let read = lastLine(AccountsFile.self, Data("""
+Last login: Mon
+{"error": null, "threshold": 85, "original": "{\\"x\\": 1}", "accounts": [{"name": "work", "client": "claude", "dir": "~/.claude-example", "account": "you@example.com", "original": "{\\"note\\": 1}"}]}
+
+""".utf8))
+check("read_threshold", read?.threshold, 85)
+check("read_rows", read?.accounts.map { [$0.name, $0.client, $0.dir, $0.account, $0.original] },
+      [["work", "claude", "~/.claude-example", "you@example.com", #"{"note": 1}"#]])
+check("read_error", lastLine(AccountsFile.self, Data(#"{"error": "bad", "threshold": 90, "original": "{}", "accounts": []}"#.utf8))?.error, "bad")
+check("read_garbage", lastLine(AccountsFile.self, Data("zsh: no such file\n".utf8)) == nil, true)
+
+// write-accounts input: the rows' fields and original, not the window's id or problem
+var edited = read!.accounts[0]
+edited.problem = "dir missing"
+let request = try! JSONSerialization.jsonObject(with: JSONEncoder().encode(
+    SaveRequest(threshold: 85, accounts: [edited], original: read!.original))) as! [String: Any]
+check("request_keys", request.keys.sorted(), ["accounts", "original", "threshold"])
+check("request_row", (request["accounts"] as! [[String: String]])[0],
+      ["name": "work", "client": "claude", "dir": "~/.claude-example", "account": "you@example.com", "original": #"{"note": 1}"#])
+check("problems", lastLine(SaveProblems.self, Data(#"{"problems": [{"index": 1, "message": "m"}, {"index": null, "message": "t"}]}"#.utf8))?
+    .problems.map { "\($0.index.map(String.init) ?? "-") \($0.message)" }, ["1 m", "- t"])
+
 if failures > 0 {
     print("\(failures) failed")
     exit(1)

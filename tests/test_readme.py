@@ -41,6 +41,13 @@ class ReadmeTest(unittest.TestCase):
         for fact in ("`osascript`", "Script Editor", "`UNUserNotificationCenter`", "Allow prompt"):
             self.assertIn(fact, spike)
 
+    def test_settings_window(self):
+        """TASK-645 FR-10: how to open the settings window, and hand editing still works."""
+        accounts = self.section("Development")
+        self.assertIn("### Settings window", accounts)
+        self.assertIn("Open Agent Usage Monitor from Applications, Spotlight or Finder", self.text)
+        self.assertIn("You can still edit `accounts.json` by hand", self.text)
+
 
 if __name__ == "__main__":
     unittest.main()
