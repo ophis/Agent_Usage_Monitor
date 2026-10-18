@@ -5,9 +5,11 @@ import Foundation
 
 /// FR-1, FR-2: a widget click opens the app with its widgetURL, launchd starts it with XPC_SERVICE_NAME set to the job
 /// label; only LaunchServices (Finder, Spotlight, Dock, `open`) sets `application.<bundle id>.…` (observed on macOS 26,
-/// not documented). Anything else refreshes, as before.
-func opensSettings(xpcServiceName: String?, openedURL: Bool) -> Bool {
-    !openedURL && xpcServiceName?.hasPrefix("application.") == true
+/// not documented). TASK-654: the widget's gear opens it with `agent-usage-monitor://settings`. Anything else refreshes,
+/// as before.
+func opensSettings(xpcServiceName: String?, urls: [URL]) -> Bool {
+    if urls.isEmpty { return xpcServiceName?.hasPrefix("application.") == true }
+    return urls.contains { $0.scheme == "agent-usage-monitor" && $0.host == "settings" }
 }
 
 /// One account; `original` is its object in the file as JSON, so write-accounts keeps the keys the window does not show.
