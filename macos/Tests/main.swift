@@ -232,12 +232,21 @@ check("alerts_no_newline", alertTexts(Data(#"AUM-ALERT {"text": "x"}"#.utf8)), [
 let full = #"AUM-ALERT {"text": "x", "add": [{"name": "cx"}], "remove": []}"#
 check("alerts_line", alertLines(Data("motd\r\n\(full)\r\n".utf8)), [AlertLine(text: "x", line: full)])
 
-// opensSettings (macos/Host/Settings.swift): only a LaunchServices launch without a URL opens the window (TASK-645)
-check("settings_finder", opensSettings(xpcServiceName: "application.com.ophis.agent-usage-monitor.1.2", openedURL: false), true)
-check("settings_widget", opensSettings(xpcServiceName: "application.com.ophis.agent-usage-monitor.1.2", openedURL: true), false)
-check("settings_launchd", opensSettings(xpcServiceName: "com.ophis.agent-usage-monitor", openedURL: false), false)
-check("settings_terminal", opensSettings(xpcServiceName: "0", openedURL: false), false)
-check("settings_none", opensSettings(xpcServiceName: nil, openedURL: false), false)
+// opensSettings (macos/Host/Settings.swift): a LaunchServices launch without a URL (TASK-645) or the widget gear's
+// settings URL (TASK-654) opens the window; the widget's refresh URL and any other URL only refresh
+let ls = "application.com.ophis.agent-usage-monitor.1.2"
+let settingsURL = URL(string: "agent-usage-monitor://settings")!, refreshURL = URL(string: "agent-usage-monitor://refresh")!
+check("settings_finder", opensSettings(xpcServiceName: ls, urls: []), true)
+check("settings_widget", opensSettings(xpcServiceName: ls, urls: [refreshURL]), false)
+check("settings_gear", opensSettings(xpcServiceName: ls, urls: [settingsURL]), true)
+check("settings_gear_running", opensSettings(xpcServiceName: nil, urls: [settingsURL]), true)
+check("settings_widget_running", opensSettings(xpcServiceName: nil, urls: [refreshURL]), false)
+check("settings_gear_among", opensSettings(xpcServiceName: ls, urls: [refreshURL, settingsURL]), true)
+check("settings_other_scheme", opensSettings(xpcServiceName: ls, urls: [URL(string: "x://settings")!]), false)
+check("settings_other_host", opensSettings(xpcServiceName: ls, urls: [URL(string: "agent-usage-monitor://other")!]), false)
+check("settings_launchd", opensSettings(xpcServiceName: "com.ophis.agent-usage-monitor", urls: []), false)
+check("settings_terminal", opensSettings(xpcServiceName: "0", urls: []), false)
+check("settings_none", opensSettings(xpcServiceName: nil, urls: []), false)
 
 // read-accounts output: the last line, after anything the login shell prints
 let read = lastLine(AccountsFile.self, Data("""

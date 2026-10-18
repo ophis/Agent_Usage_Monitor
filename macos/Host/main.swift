@@ -4,7 +4,8 @@ import UserNotifications
 import WidgetKit
 
 // FR-23, FR-24: run `agent-usage-monitor collect`, refresh the widget, exit. M2 FR-8: post the alerts it prints,
-// then record the ones macOS took (TASK-640). TASK-645: opened by the user, show the settings window instead.
+// then record the ones macOS took (TASK-640). TASK-645: opened by the user, show the settings window instead;
+// TASK-654: also for the widget gear's URL.
 
 let collectTimeout: TimeInterval = 40
 let killGrace: TimeInterval = 2
@@ -73,7 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
     private var timedOut = false
     private var running = false
     private var launched = false
-    private var openedURL = false
+    private var openedURLs: [URL] = []
     private var settings: NSWindow?
     private var settingsTimer: Timer?
     private let model = SettingsModel()
@@ -81,16 +82,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
     func applicationDidFinishLaunching(_ notification: Notification) {
         UNUserNotificationCenter.current().delegate = self
         launched = true
-        if opensSettings(xpcServiceName: ProcessInfo.processInfo.environment["XPC_SERVICE_NAME"], openedURL: openedURL) {
-            showSettings()
-        } else {
-            refresh()
-        }
+        open(xpcServiceName: ProcessInfo.processInfo.environment["XPC_SERVICE_NAME"], urls: openedURLs)
     }
 
-    // A widget click (its widgetURL): on a cold launch this comes before applicationDidFinishLaunching.
+    // A widget click (its widgetURL, or the gear's settings URL): on a cold launch this comes before
+    // applicationDidFinishLaunching.
     func application(_ application: NSApplication, open urls: [URL]) {
-        if launched { refresh() } else { openedURL = true }
+        if launched { open(xpcServiceName: nil, urls: urls) } else { openedURLs += urls }
+    }
+
+    private func open(xpcServiceName: String?, urls: [URL]) {
+        if opensSettings(xpcServiceName: xpcServiceName, urls: urls) { showSettings() } else { refresh() }
     }
 
     // While this host runs, opening the app from Finder, Spotlight or the Dock arrives as a reopen; a widget click
