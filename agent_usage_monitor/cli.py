@@ -44,6 +44,22 @@ def record_alerts(environ, lines):
     return 0
 
 
+def write_accounts(environ, text):
+    """TASK-645: the settings window's edit on stdin; its problems as one JSON line and exit 1, or written."""
+    try:
+        problems = accounts.save(environ, json.loads(text))
+    except (ValueError, KeyError, TypeError, AttributeError) as e:
+        print("agent-usage-monitor: write-accounts: malformed request: %r" % e, file=sys.stderr)
+        return 2
+    except OSError as e:
+        print("agent-usage-monitor: write-accounts: %s" % e, file=sys.stderr)
+        return 2
+    if problems:
+        print(json.dumps({"problems": [{"index": i, "message": m} for i, m in problems]}))
+        return 1
+    return 0
+
+
 def collect(environ, emit_alerts=False):
     path = environ.get("PATH", "")
     local_bin = os.path.join(accounts.home(environ), ".local", "bin")
@@ -100,7 +116,14 @@ def main(argv=None):
     p = sub.add_parser("collect", help="read every account's limits and write the snapshot")
     p.add_argument("--emit-alerts", action="store_true", help="decide alerts and print each as an AUM-ALERT line")
     sub.add_parser("record-alerts", help="record the AUM-ALERT lines on stdin as sent (the host, after posting them)")
+    sub.add_parser("read-accounts", help="print the account list as the settings window shows it, as one JSON line")
+    sub.add_parser("write-accounts", help="check and write the settings window's edit from stdin (exit 1: problems)")
     args = parser.parse_args(argv)
+    if args.command == "read-accounts":
+        print(json.dumps(accounts.editable(os.environ)))
+        return 0
+    if args.command == "write-accounts":
+        return write_accounts(os.environ, sys.stdin.read())
     if args.command == "record-alerts":
         return record_alerts(os.environ, sys.stdin.read().splitlines())
     return collect(os.environ, args.emit_alerts)
