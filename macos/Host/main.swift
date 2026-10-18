@@ -115,8 +115,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
     private func run() {
         running = true
         timedOut = false
+        model.save.collectStarted()
         cli("collect --emit-alerts", timeout: collectTimeout) { status, output in
             self.timedOut = status == nil
+            self.model.save.collectEnded(status)
             self.finished(output)
         }
     }
@@ -265,8 +267,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
                     self.running = false
                     if again {
                         self.run()
-                    } else if self.settings == nil {
-                        NSApp.terminate(nil)
+                    } else {
+                        self.model.save.collectDropped()
+                        if self.settings == nil { NSApp.terminate(nil) }
                     }
                 }
             }
@@ -309,17 +312,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
     private func save() {
         guard let request = try? JSONEncoder().encode(model.request) else { return }
         model.clearProblems()
-        model.saving = true
-        model.status = "正在保存…"
+        model.save.saveStarted()
         cli("write-accounts", input: request, timeout: settingsTimeout) { status, output in
-            self.model.saving = false
+            self.model.save.saveEnded(written: status == 0)
             if status == 0 {
-                self.model.status = "已保存，正在刷新 widget"
                 self.refresh()
             } else if status == 1, let result = lastLine(SaveProblems.self, output) {
                 self.model.failed(result.problems)
             } else {
-                self.model.status = ""
                 self.model.problem = "保存失败" + (status.map { "（exit \($0)）" } ?? "") + "，文件没有改动"
             }
         }

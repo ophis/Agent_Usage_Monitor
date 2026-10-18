@@ -272,6 +272,81 @@ check("request_row", (request["accounts"] as! [[String: String]])[0],
 check("problems", lastLine(SaveProblems.self, Data(#"{"problems": [{"index": 1, "message": "m"}, {"index": null, "message": "t"}]}"#.utf8))?
     .problems.map { "\($0.index.map(String.init) ?? "-") \($0.message)" }, ["1 m", "- t"])
 
+// SaveStatus (TASK-676): the status line from 保存 to the end of the first collect that starts after the write
+let refreshing = "已保存，正在刷新 widget"
+func saved() -> SaveStatus {
+    var s = SaveStatus()
+    s.saveStarted()
+    check("status_saving", [s.text, "\(s.saving)"], ["正在保存…", "true"])
+    s.saveEnded(written: true)
+    check("status_saved", [s.text, "\(s.saving)"], [refreshing, "false"])
+    return s
+}
+func ended(_ exit: Int32?) -> String {
+    var s = saved()
+    s.collectStarted()
+    check("status_collecting", s.text, refreshing)
+    s.collectEnded(exit)
+    return s.text
+}
+check("status_refreshed", ended(0), "")
+check("status_exit", ended(2), "已保存，但刷新 widget 失败（exit 2）")
+check("status_timeout", ended(nil), "已保存，但刷新 widget 失败（超时或没能启动）")
+
+var status = SaveStatus()
+status.saveStarted()
+status.saveEnded(written: false)
+check("status_not_written", status.text, "")
+
+status = saved()
+status.edited()
+check("status_edited", status.text, "")
+
+// A collect that started before the save read the old file; the rerun after it is the save's.
+status = SaveStatus()
+status.collectStarted()
+status.saveStarted()
+status.saveEnded(written: true)
+status.collectEnded(0)
+check("status_older_collect", status.text, refreshing)
+status.collectStarted()
+status.collectEnded(0)
+check("status_rerun", status.text, "")
+
+// A newer save, written or still writing, keeps its text when the older save's collect ends.
+status = saved()
+status.collectStarted()
+status.saveStarted()
+status.collectEnded(2)
+check("status_writing_kept", status.text, "正在保存…")
+status = saved()
+status.collectStarted()
+status.saveStarted()
+status.saveEnded(written: true)
+status.collectEnded(2)
+check("status_waiting_kept", status.text, refreshing)
+
+// The rerun is dropped after a collect ran over: the waiting save fails instead of refreshing for ever.
+status = SaveStatus()
+status.collectStarted()
+status.saveStarted()
+status.saveEnded(written: true)
+status.collectEnded(nil)
+status.collectDropped()
+check("status_dropped", status.text, "已保存，但刷新 widget 失败（超时或没能启动）")
+
+// Collects with no save (launchd, the window's timer) leave the line alone.
+status = SaveStatus()
+status.collectStarted()
+status.collectEnded(2)
+status.collectDropped()
+check("status_no_save", status.text, "")
+status = saved()
+status.collectStarted()
+status.collectEnded(0)
+status.collectDropped()
+check("status_dropped_none_waiting", status.text, "")
+
 if failures > 0 {
     print("\(failures) failed")
     exit(1)
