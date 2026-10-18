@@ -61,9 +61,24 @@ struct AgentUsageMonitorView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .overlay(alignment: .bottomTrailing) { SettingsGear() }
         .widgetURL(URL(string: "agent-usage-monitor://refresh"))
         .containerBackground(for: .widget) { CardBackground(systemDark: scheme == .dark) }
         .environment(\.colorScheme, .dark)
+    }
+}
+
+/// TASK-654: opens the settings window; the rest of the widget refreshes. One glyph past the content's bottom-right
+/// corner, in the content margin, so it takes no account's room in `fit` and covers no text.
+struct SettingsGear: View {
+    private let size = 10.0
+
+    var body: some View {
+        Link(destination: URL(string: "agent-usage-monitor://settings")!) {
+            Image(systemName: "gearshape").font(.system(size: size)).foregroundStyle(.secondary)
+        }
+        .frame(width: size, height: size)
+        .offset(x: size, y: size)
     }
 }
 

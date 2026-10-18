@@ -117,6 +117,7 @@ func account(_ name: String, bars: Int, reset: String? = nil, email: String? = n
 }
 let r = Metrics.row, d = Metrics.divider, k = Metrics.more, z = Metrics.reset
 // A medium widget is at least 155 pt tall; content margins take at most 16 pt a side. Every row with its reset line.
+// The settings gear (TASK-654) sits in the margin, so these heights hold with it.
 let medium = [account("claude", bars: 2, reset: "resets: 1h 0m"), account("codex", bars: 1, reset: "resets: 1d 0h")]
 check("fit_medium_claude_codex", fit(medium, height: 155 - 2 * 16), Display(rows: medium, more: 0))
 check("fit_reset_exact", fit(medium, height: 3 * (r + z) + d), Display(rows: medium, more: 0))

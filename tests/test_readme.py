@@ -48,6 +48,11 @@ class ReadmeTest(unittest.TestCase):
         self.assertIn("Open Agent Usage Monitor from Applications, Spotlight or Finder", self.text)
         self.assertIn("You can still edit `accounts.json` by hand", self.text)
 
+    def test_settings_gear(self):
+        """TASK-654: the widget's gear opens the settings window; the rest of the widget refreshes."""
+        self.assertIn("click the small grey gear at the bottom right of the widget", self.text)
+        self.assertIn("A click anywhere but the gear runs `collect`", self.text)
+
 
 if __name__ == "__main__":
     unittest.main()
