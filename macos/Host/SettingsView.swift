@@ -13,8 +13,7 @@ import SwiftUI
     var original = "{}"
     /// A problem with no row (the threshold), or why the save failed.
     var problem: String?
-    var status = ""
-    var saving = false
+    var save = SaveStatus()
     @ObservationIgnored var onSave: () -> Void = {}
 
     func show(_ file: AccountsFile) {
@@ -30,12 +29,14 @@ import SwiftUI
 
     var request: SaveRequest { SaveRequest(threshold: threshold, accounts: rows, original: original) }
 
+    /// TASK-676: what 保存 would write; a row's id or problem is no edit.
+    var draft: Data? { try? JSONEncoder().encode(request) }
+
     /// FR-6: each problem on its row; nothing was written.
     func failed(_ problems: [Problem]) {
         for p in problems {
             if let i = p.index, rows.indices.contains(i) { rows[i].problem = p.message } else { problem = p.message }
         }
-        status = ""
     }
 
     func clearProblems() {
@@ -100,15 +101,16 @@ struct SettingsView: View {
                 if let problem = model.problem {
                     Text(problem).foregroundStyle(.red)
                 } else {
-                    Text(model.status).foregroundStyle(.secondary)
+                    Text(model.save.text).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button("保存") { model.onSave() }
                     .keyboardShortcut("s")
                     .buttonStyle(.borderedProminent)
-                    .disabled(!model.loaded || model.error != nil || model.saving)
+                    .disabled(!model.loaded || model.error != nil || model.save.saving)
             }
         }
+        .onChange(of: model.draft) { model.save.edited() }
         .padding(20)
         .frame(minWidth: 860, minHeight: 200, alignment: .topLeading)
         // The content's own height, so the window grows and shrinks with the rows instead of clipping or leaving space.

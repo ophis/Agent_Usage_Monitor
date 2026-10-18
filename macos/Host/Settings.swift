@@ -50,6 +50,55 @@ struct SaveProblems: Decodable {
     let problems: [Problem]
 }
 
+/// TASK-676: the status line from 保存 to the end of the first collect that starts after the write, the one that reads
+/// the new file. A collect already running then read the old file; a newer save outranks an older save's collect.
+struct SaveStatus {
+    private(set) var text = ""
+    /// write-accounts is running; 保存 waits for it.
+    private(set) var saving = false
+    /// Written; the collect that reads the file has not started.
+    private var waiting = false
+    /// The running collect started after a save.
+    private var collecting = false
+
+    mutating func saveStarted() {
+        saving = true
+        text = "正在保存…"
+    }
+
+    mutating func saveEnded(written: Bool) {
+        saving = false
+        waiting = written
+        text = written ? "已保存，正在刷新 widget" : ""
+    }
+
+    mutating func collectStarted() {
+        collecting = waiting
+        waiting = false
+    }
+
+    /// `exit` is collect's status, nil when it ran over or did not start. Success clears the line.
+    mutating func collectEnded(_ exit: Int32?) {
+        guard collecting else { return }
+        collecting = false
+        if !waiting && !saving { text = exit == 0 ? "" : Self.failed(exit) }
+    }
+
+    /// No collect follows: the host dropped the rerun after one ran over.
+    mutating func collectDropped() {
+        guard waiting else { return }
+        waiting = false
+        if !saving { text = Self.failed(nil) }
+    }
+
+    /// The table no longer shows what was saved.
+    mutating func edited() { text = "" }
+
+    private static func failed(_ exit: Int32?) -> String {
+        "已保存，但刷新 widget 失败" + (exit.map { "（exit \($0)）" } ?? "（超时或没能启动）")
+    }
+}
+
 /// The CLI prints one JSON line last; the login shell may print lines before it.
 func lastLine<T: Decodable>(_ type: T.Type, _ output: Data) -> T? {
     guard let line = String(decoding: output, as: UTF8.self).split(whereSeparator: \.isNewline).last else { return nil }
