@@ -238,6 +238,36 @@ class SettingsTest(unittest.TestCase):
                 with open(self.path, "rb") as f:
                     self.assertEqual(f.read(), before)
 
+    def test_editable_file_problems_from_validate(self):
+        """correctness#3: what collect rejects at file level opens as unreadable, with collect's own text."""
+        self.env.mkdir(".codex")
+        for bad, needle in (({"threshold": 80}, "accounts must be a list"),
+                            ({"threshold": 0, "accounts": []}, "threshold must be a number")):
+            with self.subTest(bad=bad):
+                self.env.write_accounts(bad)
+                with self.assertRaises(accounts.AccountsError):
+                    accounts.load(self.env.environ)
+                view = accounts.editable(self.env.environ)
+                self.assertIn(needle, view["error"])
+                self.assertEqual(view["accounts"], [self.row("codex", "codex", "~/.codex")])
+
+    def test_save_keeps_unedited_dir(self):
+        """requirement-fidelity#1: only an edited row's dir is rewritten."""
+        a, b = self.env.mkdir("a"), self.env.mkdir("b")
+        self.env.mkdir("c")
+        self.env.write_accounts({"accounts": [
+            {"name": "a", "client": "claude", "dir": a},
+            {"name": "b", "client": "claude", "dir": b},
+            {"name": "c", "client": "codex", "dir": "~/c"},
+        ]})
+        view = accounts.editable(self.env.environ)
+        rows = view["accounts"]
+        self.assertEqual([r["dir"] for r in rows], ["~/a", "~/b", "~/c"])
+        rows[1]["dir"] = "~/c"
+        rows[2]["dir"] = "~/b"
+        self.assertEqual(self.save(rows, original=view["original"]), [])
+        self.assertEqual([i["dir"] for i in self.read_file()["accounts"]], [a, "~/c", "~/b"])
+
     def test_save_problems_write_nothing(self):
         self.env.mkdir("a")
         cases = [

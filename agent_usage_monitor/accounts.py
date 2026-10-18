@@ -131,7 +131,8 @@ def abbreviate(path, environ):
 
 def editable(environ):
     """The settings window's view of the file (TASK-645 FR-5, FR-9): defaults when it is missing; defaults and an
-    error, the file left alone, when it is not a list the window can show."""
+    error, the file left alone, when collect rejects it as a whole or the window cannot show its rows. Problems
+    with one row stay editable, for 保存 to report."""
     path = config_path(environ)
     shown = abbreviate(path, environ)
     view = {"error": None, "threshold": DEFAULT_THRESHOLD, "original": "{}",
@@ -144,13 +145,13 @@ def editable(environ):
         return view
     except (OSError, UnicodeDecodeError, ValueError, RecursionError) as e:
         return dict(view, error="%s: %s" % (shown, e))
-    items = data.get("accounts", []) if isinstance(data, dict) else None
-    if (not isinstance(items, list) or isinstance(data.get("threshold", DEFAULT_THRESHOLD), bool)
-            or not isinstance(data.get("threshold", DEFAULT_THRESHOLD), (int, float))
-            or not all(isinstance(item, dict) and all(isinstance(item.get(k, ""), str) for k in FIELDS)
-                       for item in items)):
-        return dict(view, error="%s: expected an object with a number threshold and accounts, a list of objects "
-                                "whose %s are strings" % (shown, ", ".join(FIELDS)))
+    file_problems = [problem for i, _, problem in validate(data, environ)[2] if i is None]
+    if file_problems:
+        return dict(view, error="%s: %s" % (shown, "; ".join(file_problems)))
+    items = data["accounts"]
+    if not all(isinstance(item, dict) and all(isinstance(item.get(k, ""), str) for k in FIELDS) for item in items):
+        return dict(view, error="%s: each of accounts must be an object whose %s are strings"
+                                % (shown, ", ".join(FIELDS)))
     rows = [dict({k: item.get(k, "") for k in FIELDS}, dir=abbreviate(item.get("dir", ""), environ),
                  original=json.dumps(item)) for item in items]
     return dict(view, threshold=data.get("threshold", DEFAULT_THRESHOLD), accounts=rows, original=json.dumps(data))
@@ -165,7 +166,10 @@ def save(environ, request):
     items = []
     for row in request["accounts"]:
         item = json.loads(row["original"])
-        item.update({k: row[k] for k in ("name", "client", "dir")})
+        item.update({k: row[k] for k in ("name", "client")})
+        # an unedited row keeps its dir as written, not as editable() shortened it
+        if not (isinstance(item.get("dir"), str) and abbreviate(item["dir"], environ) == row["dir"]):
+            item["dir"] = row["dir"]
         if row["account"]:
             item["account"] = row["account"]
         else:
