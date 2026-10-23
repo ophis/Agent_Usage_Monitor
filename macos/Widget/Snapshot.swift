@@ -16,6 +16,8 @@ struct Row: Decodable, Equatable {
     let sevenDay: UsageWindow?
     let source: String?
     let stale: Bool?
+    /// TASK-873: `claude` reports the account logged out; absent in snapshots from before it.
+    var needsLogin: Bool? = nil
 }
 
 struct Snapshot: Decodable, Equatable {
@@ -65,6 +67,8 @@ struct DisplayRow: Equatable {
     let client: String?
     var account: String? = nil
     let bars: [Bar]
+    /// Shown instead of the bars (needs login); the row keeps its heights.
+    var notice: String? = nil
 
     /// The bar whose reset line also carries the account, on its left: the last one with a reset.
     var accountBar: Int? { account == nil ? nil : bars.lastIndex { $0.reset != nil } }
@@ -87,6 +91,9 @@ enum Metrics {
     static let more = 14.0
     static let compactDivider = 7.0 // medium: 3 accounts with their second lines fit 155 pt less 16 pt margins
 }
+
+/// A logged-out account's notice: what to do, short enough for medium's bar columns.
+let loginNotice = "需要登录 · claude /login"
 
 /// `resets: 38m` / `2h 9m` / `6d 1h 1m`, leading zero units left out; nil when null or not in the future.
 func resetText(_ resetsAt: Int?, now: Int) -> String? {
@@ -115,12 +122,19 @@ func loadSnapshot(path: String) -> Snapshot? {
 func rows(_ snapshot: Snapshot, now: Int) -> [DisplayRow] {
     // A null window (the account has no such limit) gets no row. ⚠ leads: a long title loses its tail, not the ⚠.
     // The title is the client; the name stands in only for a row without one.
+    // Needs login: its last values say nothing until then, so the notice replaces the bars and the ⚠ (TASK-873).
     snapshot.accounts.map { row in
-        DisplayRow(title: (row.stale == true ? "⚠ " : "") + (row.client ?? row.name), client: row.client,
-                   account: row.account,
-                   bars: [("5H", row.fiveHour), ("7D", row.sevenDay)].compactMap { label, window in
-                       window.map { Bar(label: label, percent: $0.usedPercent, reset: resetText($0.resetsAt, now: now)) }
-                   })
+        if row.needsLogin == true {
+            return DisplayRow(title: row.client ?? row.name, client: row.client, account: row.account, bars: [],
+                              notice: loginNotice)
+        }
+        return DisplayRow(title: (row.stale == true ? "⚠ " : "") + (row.client ?? row.name), client: row.client,
+                          account: row.account,
+                          bars: [("5H", row.fiveHour), ("7D", row.sevenDay)].compactMap { label, window in
+                              window.map {
+                                  Bar(label: label, percent: $0.usedPercent, reset: resetText($0.resetsAt, now: now))
+                              }
+                          })
     }
 }
 
