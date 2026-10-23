@@ -5,7 +5,7 @@ import SwiftUI
 // TASK-645: the settings window, FR-3 to FR-9. The host does the reading and writing (main.swift); this is the editor.
 
 @Observable final class SettingsModel {
-    /// FR-9: why the file cannot be shown; editing waits for 用默认值重新开始.
+    /// FR-9: why the file cannot be shown; editing waits for Start Over with Defaults.
     var error: String?
     var loaded = false
     var threshold = 90.0
@@ -24,12 +24,12 @@ import SwiftUI
         loaded = true
     }
 
-    /// FR-9: read-accounts sent the defaults with the error; the file stays as it is until 保存.
+    /// FR-9: read-accounts sent the defaults with the error; the file stays as it is until Save.
     func startOver() { error = nil }
 
     var request: SaveRequest { SaveRequest(threshold: threshold, accounts: rows, original: original) }
 
-    /// TASK-676: what 保存 would write; a row's id or problem is no edit.
+    /// TASK-676: what Save would write; a row's id or problem is no edit.
     var draft: Data? { try? JSONEncoder().encode(request) }
 
     /// FR-6: each problem on its row; nothing was written.
@@ -60,7 +60,7 @@ import SwiftUI
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.showsHiddenFiles = true
-        panel.prompt = "选择"
+        panel.prompt = "Choose"
         let current = (rows[i].dir as NSString).expandingTildeInPath
         panel.directoryURL = URL(fileURLWithPath: current.isEmpty ? NSHomeDirectory() : current)
         guard panel.runModal() == .OK, let url = panel.url, rows.indices.contains(i) else { return }
@@ -74,27 +74,27 @@ struct SettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             if !model.loaded {
-                ProgressView("正在读取…")
+                ProgressView("Loading…")
             } else if let error = model.error {
                 VStack(alignment: .leading, spacing: 8) {
-                    Label("无法读取账号列表", systemImage: "exclamationmark.triangle.fill").font(.headline)
+                    Label("Can't read the account list", systemImage: "exclamationmark.triangle.fill").font(.headline)
                     Text(error).font(.callout).textSelection(.enabled)
-                    Text("原文件不会改动。点「用默认值重新开始」后，保存时才会用新的列表替换它。")
+                    Text("The file stays as it is. After Start Over with Defaults, Save replaces it with the new list.")
                         .font(.callout).foregroundStyle(.secondary)
-                    Button("用默认值重新开始") { model.startOver() }
+                    Button("Start Over with Defaults") { model.startOver() }
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
             } else {
                 table
-                Button { model.add() } label: { Label("添加", systemImage: "plus") }
+                Button { model.add() } label: { Label("Add", systemImage: "plus") }
                 HStack(spacing: 8) {
-                    Text("提醒阈值 threshold")
+                    Text("Alert threshold")
                     Stepper(value: $model.threshold, in: 50...100, step: 1) {
                         Text("\(Int(model.threshold))%").monospacedDigit().frame(width: 44, alignment: .trailing)
                     }
-                    Text("用量到这个百分比时提醒，并算作不可用").font(.callout).foregroundStyle(.secondary)
+                    Text("Alert at this usage; the account then counts as unavailable").font(.callout).foregroundStyle(.secondary)
                 }
             }
             HStack {
@@ -104,7 +104,7 @@ struct SettingsView: View {
                     Text(model.save.text).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("保存") { model.onSave() }
+                Button("Save") { model.onSave() }
                     .keyboardShortcut("s")
                     .buttonStyle(.borderedProminent)
                     .disabled(!model.loaded || model.error != nil || model.save.saving)
@@ -123,8 +123,8 @@ struct SettingsView: View {
         Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 6) {
             GridRow {
                 Text("client")
-                Text("目录").gridCellColumns(2)
-                Text("邮箱（可空）")
+                Text("dir").gridCellColumns(2)
+                Text("account (optional)")
                 Text("name")
                 Color.clear.frame(width: 1, height: 1)
             }
@@ -137,13 +137,13 @@ struct SettingsView: View {
                     }
                     .labelsHidden().frame(width: 96)
                     TextField("~/.claude", text: $row.dir).frame(minWidth: 220)
-                    Button("选择…") { model.choose(row.id) }
+                    Button("Choose…") { model.choose(row.id) }
                     TextField("you@example.com", text: $row.account).frame(minWidth: 180)
                     TextField("name", text: $row.name).frame(minWidth: 110)
                     HStack(spacing: 2) {
-                        icon("arrow.up", "上移") { model.move(row.id, by: -1) }.disabled(row.id == model.rows.first?.id)
-                        icon("arrow.down", "下移") { model.move(row.id, by: 1) }.disabled(row.id == model.rows.last?.id)
-                        icon("minus.circle", "删除") { model.remove(row.id) }
+                        icon("arrow.up", "Move Up") { model.move(row.id, by: -1) }.disabled(row.id == model.rows.first?.id)
+                        icon("arrow.down", "Move Down") { model.move(row.id, by: 1) }.disabled(row.id == model.rows.last?.id)
+                        icon("minus.circle", "Delete") { model.remove(row.id) }
                     }
                 }
                 if let problem = row.problem {
