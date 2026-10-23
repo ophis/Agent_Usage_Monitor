@@ -132,7 +132,7 @@ def abbreviate(path, environ):
 def editable(environ):
     """The settings window's view of the file (TASK-645 FR-5, FR-9): defaults when it is missing; defaults and an
     error, the file left alone, when collect rejects it as a whole or the window cannot show its rows. Problems
-    with one row stay editable, for 保存 to report."""
+    with one row stay editable, for Save to report."""
     path = config_path(environ)
     shown = abbreviate(path, environ)
     view = {"error": None, "threshold": DEFAULT_THRESHOLD, "original": "{}",
