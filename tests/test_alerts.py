@@ -54,7 +54,7 @@ class AlertsTest(unittest.TestCase):
 
     def test_near_full_once(self):
         sent = self.write({"cx": {"five_hour": w(92, NOW + H), "seven_day": w(10, NOW + DAY)}})
-        self.assertEqual(sent, ["codex · cx 5h 已到 92%%，%s 重置" % clock(NOW + H)])
+        self.assertEqual(sent, ["codex · cx 5h at 92%%, resets %s" % clock(NOW + H)])
         self.assertEqual(self.notified(), [self.full("cx", "five_hour", NOW + H)])
         self.assertEqual(self.env.snapshot()["schema"], 1)
 
@@ -65,7 +65,7 @@ class AlertsTest(unittest.TestCase):
     def test_threshold_from_list(self):
         sent = self.write({"cx": {"five_hour": w(85, NOW + H)}}, threshold=80)
         self.assertEqual(len(sent), 1)
-        self.assertIn("5h 已到 85%", sent[0])
+        self.assertIn("5h at 85%", sent[0])
 
     def test_upgrade_snapshot_without_notified(self):
         self.write({"cx": {"five_hour": w(92, NOW + H)}}, emit=False)
@@ -79,10 +79,10 @@ class AlertsTest(unittest.TestCase):
         self.write({"cx": {"five_hour": w(92, NOW + H)}})
         self.assertEqual(self.write({"cx": {"five_hour": w(93, NOW + H + 60)}}, now=NOW + 300), [])
         self.assertEqual(self.write({"cx": {"five_hour": w(93, NOW + H + 660)}}, now=NOW + 600),
-                         ["codex · cx 5h 已到 93%%，%s 重置" % clock(NOW + H + 660)], "11 min later is a new reset")
+                         ["codex · cx 5h at 93%%, resets %s" % clock(NOW + H + 660)], "11 min later is a new reset")
 
     def test_null_resets_at_dedupes_and_text(self):
-        self.assertEqual(self.write({"cx": {"seven_day": w(95)}}), ["codex · cx 7d 已到 95%，重置时间未知"])
+        self.assertEqual(self.write({"cx": {"seven_day": w(95)}}), ["codex · cx 7d at 95%, reset time unknown"])
         self.assertEqual(self.write(), [])
         self.assertEqual(self.notified(), [self.full("cx", "seven_day", None)])
 
@@ -95,7 +95,7 @@ class AlertsTest(unittest.TestCase):
 
     def test_account_label(self):
         sent = self.write({"claude-max": {"five_hour": w(90, NOW + H)}})
-        self.assertEqual(sent, ["claude · you@example.com 5h 已到 90%%，%s 重置" % clock(NOW + H)])
+        self.assertEqual(sent, ["claude · you@example.com 5h at 90%%, resets %s" % clock(NOW + H)])
 
     def test_quote_in_name_verbatim(self):
         sent = self.write({'a"b': {"five_hour": w(99, NOW + H)}}, accounts=[Account('a"b', "codex", "/d/q")])
@@ -104,8 +104,18 @@ class AlertsTest(unittest.TestCase):
     def test_other_day_reset_format(self):
         friday = NOW + 2 * DAY - 3 * H
         sent = self.write({"cx": {"seven_day": w(91, friday)}})
-        self.assertEqual(sent, ["codex · cx 7d 已到 91%%，%s 重置" % time.strftime(
-            "%-m月%-d日 %H:%M", time.localtime(friday))])
+        self.assertEqual(sent, ["codex · cx 7d at 91%%, resets Oct 16 %s" % clock(friday)])
+
+    def test_month_names_english(self):
+        for month, name in ((1, "Jan"), (5, "May"), (12, "Dec")):
+            at = int(time.mktime((2027, month, 3, 6, 0, 0, 0, 0, -1)))
+            self.assertEqual(alerts._reset_text(at, NOW), "resets %s 3 06:00" % name)
+
+    def test_upgrade_keeps_sent_alerts(self):
+        """TASK-880: a key recorded before the English texts still dedupes, so an upgrade re-sends nothing."""
+        self.seed({"cx": {"five_hour": w(92, NOW + H)}}, [self.full("cx", "five_hour", NOW + H)])
+        self.assertEqual(self.write(), [])
+        self.assertEqual(self.notified(), [self.full("cx", "five_hour", NOW + H)])
 
     def test_available_again_after_both_resets(self):
         five = NOW + 5 * H                   # "17:00"
@@ -116,14 +126,14 @@ class AlertsTest(unittest.TestCase):
         self.assertEqual(self.write(now=five + 60), [])
         self.assertEqual(len(self.notified()), 2)
         # Friday 09:01: both reset, available
-        self.assertEqual(self.write(now=seven + 60), ["claude · you@example.com 现在可用"])
+        self.assertEqual(self.write(now=seven + 60), ["claude · you@example.com available again"])
         self.assertEqual(self.notified(), [])
         self.assertEqual(self.write(now=seven + 120), [])
 
     def test_available_again_null_reset_below_threshold(self):
         self.write({"cx": {"five_hour": w(95), "seven_day": w(10, NOW + DAY)}})
         self.assertEqual(self.write({"cx": {"five_hour": w(96)}}), [], "still full")
-        self.assertEqual(self.write({"cx": {"five_hour": w(40)}}), ["codex · cx 现在可用"])
+        self.assertEqual(self.write({"cx": {"five_hour": w(40)}}), ["codex · cx available again"])
         self.assertEqual(self.notified(), [])
 
     def test_not_available_unknown_no_alert(self):
@@ -137,7 +147,7 @@ class AlertsTest(unittest.TestCase):
         self.seed({"claude-max": {"five_hour": w(10, NOW + H), "seven_day": w(30, NOW + 6 * DAY)}},
                   [self.full("claude-max", "seven_day", sent + 6 * DAY, sent)])
         # asleep from before the 7d reset until after the key turned 7 days old
-        self.assertEqual(self.write(), ["claude · you@example.com 现在可用"])
+        self.assertEqual(self.write(), ["claude · you@example.com available again"])
         self.assertEqual(self.notified(), [])
 
     def test_prune_after_7_days(self):
@@ -163,9 +173,9 @@ class AlertsTest(unittest.TestCase):
     def test_available_again_not_delivered_keeps_keys(self):
         key = self.full("cx", "five_hour", NOW - 60, NOW - 8 * DAY)
         self.seed({"cx": {"five_hour": w(10, NOW + H), "seven_day": w(10, NOW + DAY)}}, [key])
-        self.assertEqual(self.write(delivered=False), ["codex · cx 现在可用"])
+        self.assertEqual(self.write(delivered=False), ["codex · cx available again"])
         self.assertEqual(self.notified(), [key], "kept, though older than 7 days")
-        self.assertEqual(self.write(), ["codex · cx 现在可用"])
+        self.assertEqual(self.write(), ["codex · cx available again"])
         self.assertEqual(self.notified(), [])
 
     def test_record_dedupes_and_ignores_unknown_keys(self):
