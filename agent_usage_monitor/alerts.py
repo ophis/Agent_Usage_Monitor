@@ -11,6 +11,8 @@ from agent_usage_monitor import derive
 LABELS = {"five_hour": "5h", "seven_day": "7d"}
 SAME_RESET = 600
 KEEP = 7 * 86400
+# not %b: that follows the locale
+MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 
 def _int_or_none(v):
@@ -36,10 +38,10 @@ def _same_reset(a, b):
 
 def _reset_text(at, now):
     if at is None:
-        return "重置时间未知"
+        return "reset time unknown"
     t, today = time.localtime(at), time.localtime(now)
-    day = "" if t[:3] == today[:3] else "%d月%d日 " % (t.tm_mon, t.tm_mday)
-    return "%s%s 重置" % (day, time.strftime("%H:%M", t))
+    day = "" if t[:3] == today[:3] else "%s %d " % (MONTHS[t.tm_mon - 1], t.tm_mday)
+    return "resets %s%s" % (day, time.strftime("%H:%M", t))
 
 
 def evaluate(snap, threshold, now):
@@ -58,7 +60,7 @@ def evaluate(snap, threshold, now):
 
         done = [k for k in mine if ended(k)]
         if row["available"] is True and done:
-            found.append({"text": "%s 现在可用" % label, "add": [], "remove": done})
+            found.append({"text": "%s available again" % label, "add": [], "remove": done})
             mine = [k for k in mine if k not in done]
         for window in derive.WINDOWS:
             w = row.get(window)
@@ -67,8 +69,8 @@ def evaluate(snap, threshold, now):
             if any(k["window"] == window and _same_reset(k["resets_at"], w["resets_at"]) for k in mine):
                 continue
             key = {"name": row["name"], "window": window, "kind": "full", "resets_at": w["resets_at"], "sent_at": now}
-            found.append({"text": "%s %s 已到 %d%%，%s" % (label, LABELS[window], w["used_percent"],
-                                                        _reset_text(w["resets_at"], now)), "add": [key], "remove": []})
+            found.append({"text": "%s %s at %d%%, %s" % (label, LABELS[window], w["used_percent"],
+                                                      _reset_text(w["resets_at"], now)), "add": [key], "remove": []})
     # a key older than 7 days still ends in its available-again alert (Mac asleep that long), until it is delivered
     removing = [k for a in found for k in a["remove"]]
     snap["notified"] = [k for k in notified if now - k["sent_at"] <= KEEP or k in removing]

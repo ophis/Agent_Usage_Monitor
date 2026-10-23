@@ -55,8 +55,8 @@ struct AgentUsageMonitorView: View {
                 }
             } else {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Agent Usage Monitor：没有数据").font(.headline)
-                    Text("点这里刷新").font(.caption).foregroundStyle(.secondary)
+                    Text("Agent Usage Monitor: no data").font(.headline)
+                    Text("click to refresh").font(.caption).foregroundStyle(.secondary)
                 }
             }
         }
