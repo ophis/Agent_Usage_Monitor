@@ -56,6 +56,7 @@ class ReadmeTest(unittest.TestCase):
     def test_refresh_arrow(self):
         """TASK-874: a refresh arrow left of the gear shows that a click refreshes."""
         self.assertIn("A small grey refresh arrow just left of the gear does the same", self.text)
+        self.assertIn("the arrow and the gear; click the widget or the arrow to collect", self.text)
 
 
 if __name__ == "__main__":
