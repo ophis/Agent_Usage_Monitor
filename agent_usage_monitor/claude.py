@@ -100,11 +100,25 @@ def _version(probe_dir, env, timeout):
     return line if _VERSION.fullmatch(line) else None
 
 
+def _logged_out(probe_dir, env, timeout):
+    """True only when `claude auth status --json` says loggedIn false (it exits 1 then); False when unknown."""
+    try:
+        out, _, _ = _run(["auth", "status", "--json"], probe_dir, env, timeout)
+    except OSError:
+        return False
+    try:
+        status = json.loads(out)
+    except (ValueError, RecursionError):
+        return False
+    return isinstance(status, dict) and status.get("loggedIn") is False
+
+
 def refresh(name, row, state_dir, environ, config_dir=None, now=None, timeout=TIMEOUT,
             version_timeout=VERSION_TIMEOUT):
     """Probe one account; return (fields to merge, kept, stderr line or None).
 
-    kept: the row keeps its snapshot values (store.write's failed set).
+    kept: the row keeps its snapshot values (store.write's failed set). An `auth` result never disables the
+    probe and clears an earlier disable (TASK-873), so logging in recovers the account on the next run.
     """
     now = int(time.time()) if now is None else now
     fetched = row.get("fetched_at")
@@ -116,11 +130,15 @@ def refresh(name, row, state_dir, environ, config_dir=None, now=None, timeout=TI
     except OSError as e:
         return {}, True, prefix + "cannot prepare probe dir: %s" % procs.reason(e)
     env = _environment(environ, probe_dir, config_dir)
+    auth = ({"needs_login": True, "usage_disabled_version": None}, True, prefix + "auth: " + DESCRIPTIONS["auth"])
 
     disabled = row.get("usage_disabled_version")
     if disabled is not None:
         current = _version(probe_dir, env, version_timeout)
         if current is None or current == disabled:
+            # logged out explains the output that disabled it (before TASK-873 that was `unrecognized`)
+            if _logged_out(probe_dir, env, version_timeout):
+                return auth
             return {}, True, prefix + ("probe disabled for %s; delete usage_disabled_version from the snapshot "
                                        "to retry" % disabled)
 
@@ -136,10 +154,15 @@ def refresh(name, row, state_dir, environ, config_dir=None, now=None, timeout=TI
         kind = None
     if kind not in ("auth", "usage_error", "loading") and (code != 0 or not out.strip()):
         kind = "timeout"
+    # logged out, /usage prints only the session cost screen and no auth error (TASK-873); a hung probe skips this
+    if kind in ("unrecognized", "timeout") and code is not None and _logged_out(probe_dir, env, version_timeout):
+        kind = "auth"
     if kind is None:
         fields = dict(claude_usage.make_windows(parsed, now), fetched_at=now, source="usage",
-                      usage_disabled_version=None)
+                      usage_disabled_version=None, needs_login=False)
         return fields, False, None
+    if kind == "auth":
+        return auth
     if kind != "unrecognized":
         return {}, True, prefix + "%s: %s" % (kind, DESCRIPTIONS[kind])
     version = _version(probe_dir, env, version_timeout)
