@@ -119,6 +119,7 @@ def refresh(name, row, state_dir, environ, config_dir=None, now=None, timeout=TI
 
     kept: the row keeps its snapshot values (store.write's failed set). An `auth` result never disables the
     probe and clears an earlier disable (TASK-873), so logging in recovers the account on the next run.
+    A disable, new or kept, clears needs_login: auth status has just said the account is not logged out.
     """
     now = int(time.time()) if now is None else now
     fetched = row.get("fetched_at")
@@ -139,8 +140,8 @@ def refresh(name, row, state_dir, environ, config_dir=None, now=None, timeout=TI
             # logged out explains the output that disabled it (before TASK-873 that was `unrecognized`)
             if _logged_out(probe_dir, env, version_timeout):
                 return auth
-            return {}, True, prefix + ("probe disabled for %s; delete usage_disabled_version from the snapshot "
-                                       "to retry" % disabled)
+            return {"needs_login": False}, True, prefix + ("probe disabled for %s; delete usage_disabled_version "
+                                                           "from the snapshot to retry" % disabled)
 
     try:
         out, err, code = _run(ARGS, probe_dir, env, timeout)
@@ -167,8 +168,8 @@ def refresh(name, row, state_dir, environ, config_dir=None, now=None, timeout=TI
         return {}, True, prefix + "%s: %s" % (kind, DESCRIPTIONS[kind])
     version = _version(probe_dir, env, version_timeout)
     if version is None:
-        return ({"usage_disabled_version": UNKNOWN_VERSION}, True,
+        return ({"usage_disabled_version": UNKNOWN_VERSION, "needs_login": False}, True,
                 prefix + "unrecognized: output not recognized; version unknown, probe disabled until "
                 "claude --version answers or usage_disabled_version is deleted from the snapshot")
-    return ({"usage_disabled_version": version}, True,
+    return ({"usage_disabled_version": version, "needs_login": False}, True,
             prefix + "unrecognized: output not recognized; probe disabled for %s until claude changes version" % version)

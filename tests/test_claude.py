@@ -14,6 +14,8 @@ LOGGED_OUT = os.path.join(FIXTURES, "claude-usage", "logged-out.stdout.txt")
 LOGGED_OUT_STATUS = json.dumps({"loggedIn": False, "authMethod": "none", "apiProvider": "firstParty"})
 AUTH_STATUS = ["auth", "status", "--json"]
 AUTH_FIELDS = {"needs_login": True, "usage_disabled_version": None}
+# disabled or kept disabled: auth status has just said not logged out
+DISABLED = {"usage_disabled_version": "2.1.302 (Claude Code)", "needs_login": False}
 NOW = 1792213644  # 2026-10-17T05:07:24Z, the A1 run
 
 
@@ -141,7 +143,7 @@ class RefreshTest(unittest.TestCase):
                 self.assertTrue(message.startswith("agent-usage-monitor: claude claude: %s: " % kind), message)
                 for raw in ("token_expired", "rate limited", "50%", "something went wrong", "authentication_error"):
                     self.assertNotIn(raw, message)
-                self.assertEqual(fields, {"unrecognized": {"usage_disabled_version": "2.1.302 (Claude Code)"},
+                self.assertEqual(fields, {"unrecognized": DISABLED,
                                           "auth": AUTH_FIELDS}.get(kind, {}))
 
     def test_logged_out(self):
@@ -171,7 +173,7 @@ class RefreshTest(unittest.TestCase):
             with self.subTest(cfg=cfg):
                 install_fake_claude(self.env, stdout_file=LOGGED_OUT, **cfg)
                 fields, kept, message = self.refresh(version_timeout=1)
-                self.assertEqual((fields, kept), ({"usage_disabled_version": "2.1.302 (Claude Code)"}, True))
+                self.assertEqual((fields, kept), (DISABLED, True))
                 self.assertIn(": unrecognized: ", message)
 
     def test_hung_probe_skips_auth_status(self):
@@ -180,6 +182,20 @@ class RefreshTest(unittest.TestCase):
         self.assertEqual((fields, kept), ({}, True))
         self.assertIn(": timeout: ", message)
         self.assertEqual(len(claude_calls(self.env)), 1)
+
+    def test_logged_in_unrecognized_clears_needs_login(self):
+        """Logged out, then logged in with output the parser does not know: disabled, no longer needs login."""
+        install_fake_claude(self.env, stdout_file=LOGGED_OUT, auth_status=LOGGED_OUT_STATUS, auth_exit=1)
+        row = fresh_row(**self.refresh()[0])
+        self.assertIs(row["needs_login"], True)
+        install_fake_claude(self.env, stdout="50% used\n")  # the user logged in
+        fields, kept, message = self.refresh(row, now=NOW + 300)
+        self.assertEqual((fields, kept), (DISABLED, True))
+        self.assertIn(": unrecognized: ", message)
+        # a row disabled while still flagged (a snapshot from before this fix) is cleared on its next run
+        fields, kept, message = self.refresh(dict(row, usage_disabled_version=DISABLED["usage_disabled_version"]), now=NOW + 600)
+        self.assertEqual((fields, kept), ({"needs_login": False}, True))
+        self.assertIn("probe disabled for 2.1.302 (Claude Code)", message)
 
     def test_logged_out_clears_disable(self):
         """A row disabled while logged out (before TASK-873) is enabled again, so logging in recovers it."""
@@ -209,7 +225,7 @@ class RefreshTest(unittest.TestCase):
         self.assertEqual(row["usage_disabled_version"], "2.1.302 (Claude Code)")
 
         fields, kept, message = self.refresh(row, now=NOW + 360)
-        self.assertEqual((fields, kept), ({}, True))
+        self.assertEqual((fields, kept), ({"needs_login": False}, True))
         self.assertIn("probe disabled for 2.1.302 (Claude Code)", message)
         # logged in: still disabled, without running /usage
         self.assertEqual([c["argv"] for c in claude_calls(self.env)][-2:], [["--version"], AUTH_STATUS])
@@ -228,20 +244,20 @@ class RefreshTest(unittest.TestCase):
             with self.subTest(cfg=cfg):
                 install_fake_claude(self.env, stdout="50% used\n", **cfg)
                 fields, kept, message = self.refresh(timeout=1, version_timeout=1)
-                self.assertEqual(fields, {"usage_disabled_version": "unknown"})
+                self.assertEqual(fields, {"usage_disabled_version": "unknown", "needs_login": False})
                 self.assertIn("version unknown", message)
                 self.assertNotIn("banner", message)
                 # a disabled row whose version cannot be read stays disabled
                 n = len(claude_calls(self.env))
                 fields, kept, message = self.refresh(fresh_row(usage_disabled_version="2.1.302 (Claude Code)"),
                                                      version_timeout=1)
-                self.assertEqual((fields, kept), ({}, True))
+                self.assertEqual((fields, kept), ({"needs_login": False}, True))
                 self.assertEqual([c["argv"] for c in claude_calls(self.env)[n:]], [["--version"], AUTH_STATUS])
 
     def test_version_first_line(self):
         install_fake_claude(self.env, stdout="50% used\n", version="2.1.302 (Claude Code)\nUpdate available")
         fields, _, message = self.refresh()
-        self.assertEqual(fields, {"usage_disabled_version": "2.1.302 (Claude Code)"})
+        self.assertEqual(fields, DISABLED)
         self.assertNotIn("Update available", message)
 
     def test_probe_dir_unusable(self):
@@ -388,6 +404,16 @@ class CollectProbeTest(unittest.TestCase):
         row = self.row()
         self.assertEqual((row["needs_login"], row["usage_disabled_version"], row["source"]), (False, None, "usage"))
         self.assertEqual(row["five_hour"]["used_percent"], 40)
+
+    def test_logged_out_then_logged_in_unrecognized(self):
+        install_fake_claude(self.env, stdout_file=LOGGED_OUT, auth_status=LOGGED_OUT_STATUS, auth_exit=1)
+        self.collect()
+        self.assertIs(self.row()["needs_login"], True)
+        install_fake_claude(self.env, stdout="50% used\n")
+        r = self.collect()
+        self.assertIn(": unrecognized: ", r.stderr)
+        row = self.row()
+        self.assertEqual((row["needs_login"], row["usage_disabled_version"]), (False, "2.1.302 (Claude Code)"))
 
     def test_no_identity_in_snapshot(self):
         install_fake_claude(self.env, stdout="Account: user@example.com\nOrg: Example Org\n" + USAGE)
