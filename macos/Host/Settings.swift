@@ -50,11 +50,11 @@ struct SaveProblems: Decodable {
     let problems: [Problem]
 }
 
-/// TASK-676: the status line from 保存 to the end of the first collect that starts after the write, the one that reads
+/// TASK-676: the status line from Save to the end of the first collect that starts after the write, the one that reads
 /// the new file. A collect already running then read the old file; a newer save outranks an older save's collect.
 struct SaveStatus {
     private(set) var text = ""
-    /// write-accounts is running; 保存 waits for it.
+    /// write-accounts is running; Save waits for it.
     private(set) var saving = false
     /// Written; the collect that reads the file has not started.
     private var waiting = false
@@ -63,13 +63,13 @@ struct SaveStatus {
 
     mutating func saveStarted() {
         saving = true
-        text = "正在保存…"
+        text = "Saving…"
     }
 
     mutating func saveEnded(written: Bool) {
         saving = false
         waiting = written
-        text = written ? "已保存，正在刷新 widget" : ""
+        text = written ? "Saved, refreshing the widget…" : ""
     }
 
     mutating func collectStarted() {
@@ -95,7 +95,7 @@ struct SaveStatus {
     mutating func edited() { text = "" }
 
     private static func failed(_ exit: Int32?) -> String {
-        "已保存，但刷新 widget 失败" + (exit.map { "（exit \($0)）" } ?? "（超时或没能启动）")
+        "Saved, but the widget refresh failed" + (exit.map { " (exit \($0))" } ?? " (timed out or didn't start)")
     }
 }
 

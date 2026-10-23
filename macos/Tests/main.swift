@@ -272,12 +272,12 @@ check("request_row", (request["accounts"] as! [[String: String]])[0],
 check("problems", lastLine(SaveProblems.self, Data(#"{"problems": [{"index": 1, "message": "m"}, {"index": null, "message": "t"}]}"#.utf8))?
     .problems.map { "\($0.index.map(String.init) ?? "-") \($0.message)" }, ["1 m", "- t"])
 
-// SaveStatus (TASK-676): the status line from 保存 to the end of the first collect that starts after the write
-let refreshing = "已保存，正在刷新 widget"
+// SaveStatus (TASK-676): the status line from Save to the end of the first collect that starts after the write
+let refreshing = "Saved, refreshing the widget…"
 func saved() -> SaveStatus {
     var s = SaveStatus()
     s.saveStarted()
-    check("status_saving", [s.text, "\(s.saving)"], ["正在保存…", "true"])
+    check("status_saving", [s.text, "\(s.saving)"], ["Saving…", "true"])
     s.saveEnded(written: true)
     check("status_saved", [s.text, "\(s.saving)"], [refreshing, "false"])
     return s
@@ -290,8 +290,8 @@ func ended(_ exit: Int32?) -> String {
     return s.text
 }
 check("status_refreshed", ended(0), "")
-check("status_exit", ended(2), "已保存，但刷新 widget 失败（exit 2）")
-check("status_timeout", ended(nil), "已保存，但刷新 widget 失败（超时或没能启动）")
+check("status_exit", ended(2), "Saved, but the widget refresh failed (exit 2)")
+check("status_timeout", ended(nil), "Saved, but the widget refresh failed (timed out or didn't start)")
 
 var status = SaveStatus()
 status.saveStarted()
@@ -318,7 +318,7 @@ status = saved()
 status.collectStarted()
 status.saveStarted()
 status.collectEnded(2)
-check("status_writing_kept", status.text, "正在保存…")
+check("status_writing_kept", status.text, "Saving…")
 status = saved()
 status.collectStarted()
 status.saveStarted()
@@ -333,7 +333,7 @@ status.saveStarted()
 status.saveEnded(written: true)
 status.collectEnded(nil)
 status.collectDropped()
-check("status_dropped", status.text, "已保存，但刷新 widget 失败（超时或没能启动）")
+check("status_dropped", status.text, "Saved, but the widget refresh failed (timed out or didn't start)")
 
 // Collects with no save (launchd, the window's timer) leave the line alone.
 status = SaveStatus()

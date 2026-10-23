@@ -21,7 +21,7 @@ let recordTimeout: TimeInterval = 20
 let settingsTimeout: TimeInterval = 20
 // launchd's runs exit while this host shows the window (one host at a time), so the window's host collects as often.
 let settingsRefresh: TimeInterval = 300
-let settingsHint = "turn them on in 系统设置 › 通知 › Agent Usage Monitor (System Settings › Notifications › Agent Usage Monitor)"
+let settingsHint = "turn them on in System Settings › Notifications › Agent Usage Monitor"
 let logPath = NSHomeDirectory() + "/Library/Logs/agent-usage-monitor.log"
 
 /// FR-8: alert send failures go to the log file, also when a widget click (not launchd) started the host.
@@ -287,7 +287,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
         NSApp.mainMenu = settingsMenu()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 420),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "Agent Usage Monitor 设置"
+        window.title = "Agent Usage Monitor Settings"
         window.isReleasedWhenClosed = false
         let hosting = NSHostingView(rootView: SettingsView(model: model))
         window.contentView = hosting
@@ -302,8 +302,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
             if status == 0, let file = lastLine(AccountsFile.self, output) {
                 self.model.show(file)
             } else {
-                self.model.problem = "无法运行 ~/.local/bin/agent-usage-monitor read-accounts"
-                    + (status.map { "（exit \($0)）" } ?? "") + "，请先 make install"
+                self.model.problem = "Can't run ~/.local/bin/agent-usage-monitor read-accounts"
+                    + (status.map { " (exit \($0))" } ?? "") + "; run make install first"
             }
         }
     }
@@ -320,7 +320,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
             } else if status == 1, let result = lastLine(SaveProblems.self, output) {
                 self.model.failed(result.problems)
             } else {
-                self.model.problem = "保存失败" + (status.map { "（exit \($0)）" } ?? "") + "，文件没有改动"
+                self.model.problem = "Save failed" + (status.map { " (exit \($0))" } ?? "") + "; the file is unchanged"
             }
         }
     }
@@ -332,15 +332,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
             item.keyEquivalentModifierMask = mask
             return item
         }
-        let quit = item("退出 Agent Usage Monitor", #selector(quit(_:)), "q")
+        let quit = item("Quit Agent Usage Monitor", #selector(quit(_:)), "q")
         quit.target = self
         let menu = NSMenu()
         for (title, items) in [
             ("Agent Usage Monitor", [quit]),
-            ("文件", [item("关闭", #selector(NSWindow.performClose(_:)), "w")]),
-            ("编辑", [item("撤销", Selector(("undo:")), "z"), item("重做", Selector(("redo:")), "z", [.command, .shift]),
-                      .separator(), item("剪切", #selector(NSText.cut(_:)), "x"), item("拷贝", #selector(NSText.copy(_:)), "c"),
-                      item("粘贴", #selector(NSText.paste(_:)), "v"), item("全选", #selector(NSText.selectAll(_:)), "a")]),
+            ("File", [item("Close Window", #selector(NSWindow.performClose(_:)), "w")]),
+            ("Edit", [item("Undo", Selector(("undo:")), "z"), item("Redo", Selector(("redo:")), "z", [.command, .shift]),
+                      .separator(), item("Cut", #selector(NSText.cut(_:)), "x"), item("Copy", #selector(NSText.copy(_:)), "c"),
+                      item("Paste", #selector(NSText.paste(_:)), "v"), item("Select All", #selector(NSText.selectAll(_:)), "a")]),
         ] {
             let top = NSMenuItem(title: title, action: nil, keyEquivalent: "")
             top.submenu = NSMenu(title: title)
