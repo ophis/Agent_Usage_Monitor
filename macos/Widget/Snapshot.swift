@@ -93,7 +93,7 @@ enum Metrics {
 }
 
 /// A logged-out account's notice: what to do, short enough for medium's bar columns.
-let loginNotice = "需要登录 · claude /login"
+let loginNotice = "needs login · claude /login"
 
 /// `resets: 38m` / `2h 9m` / `6d 1h 1m`, leading zero units left out; nil when null or not in the future.
 func resetText(_ resetsAt: Int?, now: Int) -> String? {

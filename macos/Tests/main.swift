@@ -70,6 +70,8 @@ check("needs_login", login, [
 check("needs_login_no_account", show([row("a", five: 1, seven: 2, available: true, needsLogin: true)]),
       [DisplayRow(title: "claude", client: "claude", bars: [], notice: loginNotice)])
 check("needs_login_lines", [login[0].secondLine, login[0].accountLine], [true, true])
+// lowercase like `resets:`; fits medium's two bar columns (about 180 of 239 pt at 13 pt semibold)
+check("login_notice", loginNotice, "needs login · claude /login")
 
 // account_line: the account sits on the last reset line, else on a line of its own under the last bar
 let mixed = show([row("a", five: 0, seven: 100, available: false, resets: (nil, t + 60), account: "you@example.com"),
