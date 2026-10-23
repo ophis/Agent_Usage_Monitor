@@ -108,7 +108,12 @@ struct AccountList: View {
                     compactRow(row)
                 } else {
                     if row.bars.isEmpty {
-                        title(row.title).frame(height: Metrics.row)
+                        HStack(spacing: 8) {
+                            title(row.title)
+                            if let notice = row.notice { self.notice(notice) }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(height: Metrics.row)
                     }
                     ForEach(row.bars.indices, id: \.self) { j in
                         let bar = row.bars[j]
@@ -160,11 +165,15 @@ struct AccountList: View {
         let bars = ["5H", "7D"].map { label in row.bars.first { $0.label == label } }
         HStack(spacing: gap) {
             title(row.title)
-            ForEach(bars.indices, id: \.self) { j in
-                Group {
-                    if let bar = bars[j] { BarRow(bar: bar, client: row.client, compact: true) } else { Color.clear }
+            if let notice = row.notice {
+                self.notice(notice).frame(width: 2 * slot + gap, alignment: .leading)
+            } else {
+                ForEach(bars.indices, id: \.self) { j in
+                    Group {
+                        if let bar = bars[j] { BarRow(bar: bar, client: row.client, compact: true) } else { Color.clear }
+                    }
+                    .frame(width: slot)
                 }
-                .frame(width: slot)
             }
         }
         .frame(height: Metrics.row)
@@ -190,6 +199,11 @@ struct AccountList: View {
         // The same size as the percent: who first, then the number.
         Text(s).font(.system(size: 15, weight: .bold)).lineLimit(1).truncationMode(.tail)
             .frame(width: titleWidth, alignment: .leading)
+    }
+
+    /// Needs login (TASK-873): yellow like a warning bar, where the bars would be.
+    private func notice(_ s: String) -> some View {
+        Text(s).font(.system(size: 13, weight: .semibold)).foregroundStyle(.yellow).lineLimit(1).truncationMode(.tail)
     }
 
     /// The reset time and the account: gray caption, a long account loses its tail.
