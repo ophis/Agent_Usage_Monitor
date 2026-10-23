@@ -9,6 +9,13 @@ from tests.helpers import (FIXTURES, Env, claude_calls, install_fake_claude, ins
                            window)
 
 A1 = os.path.join(FIXTURES, "claude-usage", "A1.stdout.txt")
+# TASK-873: /usage of a logged-out account (claude 2.1.309, empty CLAUDE_CONFIG_DIR) prints only the cost screen
+LOGGED_OUT = os.path.join(FIXTURES, "claude-usage", "logged-out.stdout.txt")
+LOGGED_OUT_STATUS = json.dumps({"loggedIn": False, "authMethod": "none", "apiProvider": "firstParty"})
+AUTH_STATUS = ["auth", "status", "--json"]
+AUTH_FIELDS = {"needs_login": True, "usage_disabled_version": None}
+# disabled or kept disabled: auth status has just said not logged out
+DISABLED = {"usage_disabled_version": "2.1.302 (Claude Code)", "needs_login": False}
 NOW = 1792213644  # 2026-10-17T05:07:24Z, the A1 run
 
 
@@ -59,9 +66,9 @@ class RefreshTest(unittest.TestCase):
         self.env.environ.update(CLAUDE_CONFIG_DIR=os.path.join(self.env.home, ".claude"))
         other = self.env.mkdir(".claude-a")
         self.refresh(config_dir=other)
-        probe, version = claude_calls(self.env)
-        self.assertEqual(version["argv"], ["--version"])
-        for call in (probe, version):
+        probe, auth, version = claude_calls(self.env)
+        self.assertEqual((auth["argv"], version["argv"]), (AUTH_STATUS, ["--version"]))
+        for call in (probe, auth, version):
             self.assertEqual(call["env"], {"PWD": self.probe_dir, "DISABLE_AUTOUPDATER": "1", "CLAUDE_CONFIG_DIR": other,
                                            "PATH": self.env.environ["PATH"], "HOME": self.env.home})
 
@@ -85,6 +92,7 @@ class RefreshTest(unittest.TestCase):
         self.assertEqual(fields["source"], "usage")
         self.assertEqual(fields["fetched_at"], NOW)
         self.assertIsNone(fields["usage_disabled_version"])
+        self.assertIs(fields["needs_login"], False)
         self.assertEqual(fields["five_hour"], {"used_percent": 17, "resets_at": 1792226340})
         self.assertEqual(fields["seven_day"]["used_percent"], 1)
 
@@ -135,8 +143,80 @@ class RefreshTest(unittest.TestCase):
                 self.assertTrue(message.startswith("agent-usage-monitor: claude claude: %s: " % kind), message)
                 for raw in ("token_expired", "rate limited", "50%", "something went wrong", "authentication_error"):
                     self.assertNotIn(raw, message)
-                self.assertEqual(fields, {"usage_disabled_version": "2.1.302 (Claude Code)"}
-                                 if kind == "unrecognized" else {})
+                self.assertEqual(fields, {"unrecognized": DISABLED,
+                                          "auth": AUTH_FIELDS}.get(kind, {}))
+
+    def test_logged_out(self):
+        """TASK-873: a logged-out account's /usage shows only the cost screen; auth status tells why."""
+        install_fake_claude(self.env, stdout_file=LOGGED_OUT, auth_status=LOGGED_OUT_STATUS, auth_exit=1)
+        fields, kept, message = self.refresh()
+        self.assertEqual((fields, kept), (AUTH_FIELDS, True))
+        self.assertEqual(message, "agent-usage-monitor: claude claude: auth: " + claude.DESCRIPTIONS["auth"])
+        probe, auth = claude_calls(self.env)
+        self.assertEqual(auth["argv"], AUTH_STATUS)
+        self.assertEqual((auth["cwd"], auth["env"], auth["stdin"]), (probe["cwd"], probe["env"], ""))
+
+    def test_logged_out_failed_probe(self):
+        # a /usage that exited without usable output is checked too
+        for cfg in ({"stdout": ""}, {"stdout": "something went wrong\n", "exit": 1}):
+            with self.subTest(cfg=cfg):
+                install_fake_claude(self.env, auth_status=LOGGED_OUT_STATUS, auth_exit=1, **cfg)
+                fields, kept, message = self.refresh()
+                self.assertEqual((fields, kept), (AUTH_FIELDS, True))
+                self.assertIn(": auth: ", message)
+
+    def test_auth_status_not_logged_out(self):
+        # logged in, or an answer that is not exactly loggedIn false: the cost screen stays unrecognized
+        for cfg in ({}, {"auth_status": "not json"}, {"auth_status": "", "auth_exit": 1},
+                    {"auth_status": json.dumps({"loggedIn": None})}, {"auth_status": json.dumps({"loggedIn": "false"})},
+                    {"auth_status": json.dumps([{"loggedIn": False}])}, {"auth_hang": True}):
+            with self.subTest(cfg=cfg):
+                install_fake_claude(self.env, stdout_file=LOGGED_OUT, **cfg)
+                fields, kept, message = self.refresh(version_timeout=1)
+                self.assertEqual((fields, kept), (DISABLED, True))
+                self.assertIn(": unrecognized: ", message)
+
+    def test_hung_probe_skips_auth_status(self):
+        install_fake_claude(self.env, hang=True, auth_status=LOGGED_OUT_STATUS, auth_exit=1)
+        fields, kept, message = self.refresh(timeout=1)
+        self.assertEqual((fields, kept), ({}, True))
+        self.assertIn(": timeout: ", message)
+        self.assertEqual(len(claude_calls(self.env)), 1)
+
+    def test_logged_in_unrecognized_clears_needs_login(self):
+        """Logged out, then logged in with output the parser does not know: disabled, no longer needs login."""
+        install_fake_claude(self.env, stdout_file=LOGGED_OUT, auth_status=LOGGED_OUT_STATUS, auth_exit=1)
+        row = fresh_row(**self.refresh()[0])
+        self.assertIs(row["needs_login"], True)
+        install_fake_claude(self.env, stdout="50% used\n")  # the user logged in
+        fields, kept, message = self.refresh(row, now=NOW + 300)
+        self.assertEqual((fields, kept), (DISABLED, True))
+        self.assertIn(": unrecognized: ", message)
+        # a row disabled while still flagged (a snapshot from before this fix) is cleared on its next run
+        fields, kept, message = self.refresh(dict(row, usage_disabled_version=DISABLED["usage_disabled_version"]), now=NOW + 600)
+        self.assertEqual((fields, kept), ({"needs_login": False}, True))
+        self.assertIn("probe disabled for 2.1.302 (Claude Code)", message)
+
+    def test_logged_out_clears_disable(self):
+        """A row disabled while logged out (before TASK-873) is enabled again, so logging in recovers it."""
+        install_fake_claude(self.env, stdout_file=LOGGED_OUT, auth_status=LOGGED_OUT_STATUS, auth_exit=1)
+        fields, kept, message = self.refresh(fresh_row(usage_disabled_version="2.1.302 (Claude Code)"))
+        self.assertEqual((fields, kept), (AUTH_FIELDS, True))
+        self.assertIn(": auth: ", message)
+        self.assertEqual([c["argv"] for c in claude_calls(self.env)], [["--version"], AUTH_STATUS])
+
+    def test_recovers_after_login(self):
+        install_fake_claude(self.env, stdout_file=LOGGED_OUT, auth_status=LOGGED_OUT_STATUS, auth_exit=1)
+        row = fresh_row(**self.refresh()[0])
+        # still logged out: the next run probes again and is not disabled
+        fields, kept, _ = self.refresh(row, now=NOW + 300)
+        self.assertEqual((fields, kept), (AUTH_FIELDS, True))
+        self.assertEqual([c["argv"] for c in claude_calls(self.env)].count(AUTH_STATUS), 2)
+        install_fake_claude(self.env, stdout=USAGE)  # the user logged in
+        fields, kept, message = self.refresh(row, now=NOW + 600)
+        self.assertEqual((kept, message), (False, None))
+        self.assertEqual((fields["needs_login"], fields["usage_disabled_version"], fields["source"]),
+                         (False, None, "usage"))
 
     def test_version_disable_cycle(self):
         install_fake_claude(self.env, stdout="50% used\n", version="2.1.302 (Claude Code)")
@@ -145,10 +225,11 @@ class RefreshTest(unittest.TestCase):
         self.assertEqual(row["usage_disabled_version"], "2.1.302 (Claude Code)")
 
         fields, kept, message = self.refresh(row, now=NOW + 360)
-        self.assertEqual((fields, kept), ({}, True))
+        self.assertEqual((fields, kept), ({"needs_login": False}, True))
         self.assertIn("probe disabled for 2.1.302 (Claude Code)", message)
-        self.assertEqual([c["argv"] for c in claude_calls(self.env)][-1], ["--version"])
-        self.assertEqual(len(claude_calls(self.env)), 3)
+        # logged in: still disabled, without running /usage
+        self.assertEqual([c["argv"] for c in claude_calls(self.env)][-2:], [["--version"], AUTH_STATUS])
+        self.assertEqual(len(claude_calls(self.env)), 5)
 
         install_fake_claude(self.env, stdout=USAGE, version="2.1.303 (Claude Code)")
         fields, kept, message = self.refresh(row, now=NOW + 720)
@@ -163,20 +244,20 @@ class RefreshTest(unittest.TestCase):
             with self.subTest(cfg=cfg):
                 install_fake_claude(self.env, stdout="50% used\n", **cfg)
                 fields, kept, message = self.refresh(timeout=1, version_timeout=1)
-                self.assertEqual(fields, {"usage_disabled_version": "unknown"})
+                self.assertEqual(fields, {"usage_disabled_version": "unknown", "needs_login": False})
                 self.assertIn("version unknown", message)
                 self.assertNotIn("banner", message)
                 # a disabled row whose version cannot be read stays disabled
                 n = len(claude_calls(self.env))
                 fields, kept, message = self.refresh(fresh_row(usage_disabled_version="2.1.302 (Claude Code)"),
                                                      version_timeout=1)
-                self.assertEqual((fields, kept), ({}, True))
-                self.assertEqual([c["argv"] for c in claude_calls(self.env)[n:]], [["--version"]])
+                self.assertEqual((fields, kept), ({"needs_login": False}, True))
+                self.assertEqual([c["argv"] for c in claude_calls(self.env)[n:]], [["--version"], AUTH_STATUS])
 
     def test_version_first_line(self):
         install_fake_claude(self.env, stdout="50% used\n", version="2.1.302 (Claude Code)\nUpdate available")
         fields, _, message = self.refresh()
-        self.assertEqual(fields, {"usage_disabled_version": "2.1.302 (Claude Code)"})
+        self.assertEqual(fields, DISABLED)
         self.assertNotIn("Update available", message)
 
     def test_probe_dir_unusable(self):
@@ -309,6 +390,30 @@ class CollectProbeTest(unittest.TestCase):
         self.assertIn("agent-usage-monitor: claude claude: auth: ", r.stderr)
         self.assertNotIn("token_expired", r.stderr)
         self.assertEqual(self.row()["source"], "none")
+
+    def test_logged_out_then_login(self):
+        """TASK-873: the row says it needs login, stays enabled, and recovers once the user logs in."""
+        install_fake_claude(self.env, stdout_file=LOGGED_OUT, auth_status=LOGGED_OUT_STATUS, auth_exit=1)
+        r = self.collect()
+        self.assertIn("agent-usage-monitor: claude claude: auth: ", r.stderr)
+        row = self.row()
+        self.assertEqual((row["needs_login"], row["usage_disabled_version"], row["source"]), (True, None, "none"))
+        install_fake_claude(self.env, stdout=USAGE)
+        r = self.collect()
+        self.assertNotIn("claude claude:", r.stderr)
+        row = self.row()
+        self.assertEqual((row["needs_login"], row["usage_disabled_version"], row["source"]), (False, None, "usage"))
+        self.assertEqual(row["five_hour"]["used_percent"], 40)
+
+    def test_logged_out_then_logged_in_unrecognized(self):
+        install_fake_claude(self.env, stdout_file=LOGGED_OUT, auth_status=LOGGED_OUT_STATUS, auth_exit=1)
+        self.collect()
+        self.assertIs(self.row()["needs_login"], True)
+        install_fake_claude(self.env, stdout="50% used\n")
+        r = self.collect()
+        self.assertIn(": unrecognized: ", r.stderr)
+        row = self.row()
+        self.assertEqual((row["needs_login"], row["usage_disabled_version"]), (False, "2.1.302 (Claude Code)"))
 
     def test_no_identity_in_snapshot(self):
         install_fake_claude(self.env, stdout="Account: user@example.com\nOrg: Example Org\n" + USAGE)
