@@ -61,26 +61,34 @@ struct AgentUsageMonitorView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .overlay(alignment: .bottomTrailing) { SettingsGear() }
+        .overlay(alignment: .bottomTrailing) { CornerLinks() }
         .widgetURL(URL(string: "agent-usage-monitor://refresh"))
         .containerBackground(for: .widget) { CardBackground(systemDark: scheme == .dark) }
         .environment(\.colorScheme, .dark)
     }
 }
 
-/// TASK-654: opens the settings window; the rest of the widget refreshes. Right-aligned with the percents, just under
-/// the content in the bottom margin, clear of the rounded corner: medium has no free row for it (3 accounts use
-/// 122 of 123 pt), so it takes no account's room in `fit`.
-struct SettingsGear: View {
+/// TASK-654: the gear opens the settings window; the rest of the widget refreshes. TASK-874: the arrow left of it
+/// refreshes too, so that shows. Right-aligned with the percents, just under the content in the bottom margin, clear
+/// of the rounded corner: medium has no free row for them (3 accounts use 122 of 123 pt), so they take no account's
+/// room in `fit`.
+struct CornerLinks: View {
     private let size = 10.0
     private let gap = 2.0
 
     var body: some View {
-        Link(destination: URL(string: "agent-usage-monitor://settings")!) {
-            Image(systemName: "gearshape").font(.system(size: size)).foregroundStyle(.secondary)
+        HStack(spacing: size) {
+            link("arrow.clockwise", "agent-usage-monitor://refresh")
+            link("gearshape", "agent-usage-monitor://settings")
+        }
+        .offset(y: size + gap)
+    }
+
+    private func link(_ symbol: String, _ url: String) -> some View {
+        Link(destination: URL(string: url)!) {
+            Image(systemName: symbol).font(.system(size: size)).foregroundStyle(.secondary)
         }
         .frame(width: size, height: size)
-        .offset(y: size + gap)
     }
 }
 
