@@ -20,7 +20,7 @@ def state_dir(environ):
 def default_row():
     row = {"available": None, "available_at": None}
     row.update({k: {"used_percent": None, "resets_at": None} for k in derive.WINDOWS})
-    row.update(fetched_at=None, source="none", stale=False, usage_disabled_version=None)
+    row.update(fetched_at=None, source="none", stale=False, usage_disabled_version=None, needs_login=False)
     return row
 
 

@@ -15,11 +15,11 @@ let t = 1_792_166_400
 
 func row(_ name: String, five: Int?, seven: Int?, available: Bool?, client: String? = "claude",
          stale: Bool = false, source: String = "app-server", resets: (Int?, Int?) = (nil, nil),
-         account: String? = nil) -> Row {
+         account: String? = nil, needsLogin: Bool? = nil) -> Row {
     Row(name: name, client: client, account: account, available: available,
         fiveHour: UsageWindow(usedPercent: five, resetsAt: resets.0),
         sevenDay: UsageWindow(usedPercent: seven, resetsAt: resets.1),
-        source: source, stale: stale)
+        source: source, stale: stale, needsLogin: needsLogin)
 }
 
 func show(_ accounts: [Row]) -> [DisplayRow] {
@@ -58,6 +58,20 @@ for (at, name) in [(nil, "nil"), (t, "now"), (t - 60, "past")] as [(Int?, String
 // stale_title: ⚠ leads, so cutting a long title's tail keeps it
 check("stale_title", show([row("claude-personal-backup", five: 1, seven: 2, available: true, stale: true)]).map(\.title),
       ["⚠ claude"])
+
+// needs_login (TASK-873): the client without ⚠, the notice instead of the bars, the account kept; false is a normal row
+let login = show([row("a", five: 40, seven: 10, available: true, stale: true, resets: (t + 60, t + 120),
+                      account: "you@example.com", needsLogin: true),
+                  row("b", five: 1, seven: 2, available: true, needsLogin: false)])
+check("needs_login", login, [
+    DisplayRow(title: "claude", client: "claude", account: "you@example.com", bars: [], notice: loginNotice),
+    DisplayRow(title: "claude", client: "claude", bars: [Bar(label: "5H", percent: 1), Bar(label: "7D", percent: 2)]),
+])
+check("needs_login_no_account", show([row("a", five: 1, seven: 2, available: true, needsLogin: true)]),
+      [DisplayRow(title: "claude", client: "claude", bars: [], notice: loginNotice)])
+check("needs_login_lines", [login[0].secondLine, login[0].accountLine], [true, true])
+// lowercase like `resets:`; fits medium's two bar columns (about 180 of 239 pt at 13 pt semibold)
+check("login_notice", loginNotice, "needs login · claude /login")
 
 // account_line: the account sits on the last reset line, else on a line of its own under the last bar
 let mixed = show([row("a", five: 0, seven: 100, available: false, resets: (nil, t + 60), account: "you@example.com"),
@@ -173,6 +187,11 @@ check("second_line", [shot[0], account("x", bars: 1, reset: "resets: 1m"), accou
 check("more_room_compact", [shot[0], account("x", bars: 2, reset: "resets: 1m"), account("x", bars: 2)]
           .map(compactMoreRoom), [k, 0, k])
 let bare = [account("a", bars: 2), account("b", bars: 1), account("c", bars: 1)]
+// needs_login keeps the row's two lines, so medium still fits three accounts
+let loginShot = [login[0], shot[1], shot[2]]
+check("fit_compact_needs_login", fit(loginShot, height: 155 - 2 * 16, compact: true), Display(rows: loginShot, more: 0))
+check("fit_compact_needs_login_exact", fit(loginShot, height: 3 * (r + z) + 2 * cd, compact: true),
+      Display(rows: loginShot, more: 0))
 check("fit_compact_no_second_line", fit(bare, height: 3 * r + 2 * cd, compact: true), Display(rows: bare, more: 0))
 check("fit_compact_no_second_line_short", fit(bare, height: 3 * r + 2 * cd - 1, compact: true),
       Display(rows: Array(bare.prefix(2)), more: 1))
@@ -201,16 +220,18 @@ let valid = load("""
    "available": false, "available_at": \(t + 3600),
    "five_hour": null,
    "seven_day": {"used_percent": 93, "resets_at": \(t + 3600)},
-   "fetched_at": \(t - 120), "source": "app-server", "stale": false, "usage_disabled_version": null},
+   "fetched_at": \(t - 120), "source": "app-server", "stale": false, "usage_disabled_version": null,
+   "needs_login": false},
   {"name": "old", "five_hour": null, "seven_day": null},
-  {"name": "mail", "client": "claude", "account": "you@example.com", "five_hour": null, "seven_day": null}],
+  {"name": "mail", "client": "claude", "account": "you@example.com", "five_hour": null, "seven_day": null,
+   "needs_login": true}],
  "summary": {"available": [], "next": {"name": "codex", "at": \(t + 3600)}},
  "notified": [{"name": "codex", "window": "seven_day", "kind": "full", "resets_at": \(t + 3600), "sent_at": \(t - 120)}]}
 """)
 check("load_valid", valid.map { rows($0, now: t) }, [
     DisplayRow(title: "codex", client: "codex", bars: [Bar(label: "7D", percent: 93, reset: "resets: 1h 0m")]),
     DisplayRow(title: "old", client: nil, bars: []),
-    DisplayRow(title: "claude", client: "claude", account: "you@example.com", bars: []),
+    DisplayRow(title: "claude", client: "claude", account: "you@example.com", bars: [], notice: loginNotice),
 ])
 
 // alertLines (macos/Host/Alerts.swift): only `AUM-ALERT ` lines with a JSON string `text`

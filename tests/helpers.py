@@ -175,6 +175,11 @@ if sys.argv[1:] == ["--version"]:
         time.sleep(600)
     sys.stdout.write(cfg.get("version", "2.1.302 (Claude Code)") + "\n")
     sys.exit(cfg.get("version_exit", 0))
+if sys.argv[1:3] == ["auth", "status"]:
+    if cfg.get("auth_hang"):
+        time.sleep(600)
+    sys.stdout.write(cfg.get("auth_status", json.dumps({"loggedIn": True, "authMethod": "claude.ai"})) + "\n")
+    sys.exit(cfg.get("auth_exit", 0))
 if cfg.get("hang"):
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
     time.sleep(600)
