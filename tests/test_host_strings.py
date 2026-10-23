@@ -11,7 +11,7 @@ CJK = re.compile("[　-〿一-鿿＀-￯]")
 
 class HostStringsTest(unittest.TestCase):
     """TASK-877: the settings window, its menus and its status and error lines are in English.
-    TASK-880: so are the alert notifications."""
+    TASK-880: so are the widget and the alert notifications."""
 
     def setUp(self):
         with open(os.path.join(ROOT, "README.md"), encoding="utf-8") as f:
@@ -32,11 +32,17 @@ class HostStringsTest(unittest.TestCase):
     def test_host_swift_has_no_cjk(self):
         self.assert_files_no_cjk(sorted(glob.glob(os.path.join(ROOT, "macos", "Host", "*.swift"))))
 
+    def test_widget_swift_has_no_cjk(self):
+        self.assert_files_no_cjk(sorted(glob.glob(os.path.join(ROOT, "macos", "Widget", "*.swift"))))
+
     def test_alerts_have_no_cjk(self):
         self.assert_files_no_cjk([os.path.join(ROOT, "agent_usage_monitor", "alerts.py")])
 
     def test_readme_settings_window_has_no_cjk(self):
         self.assert_readme_no_cjk("\n### Settings window\n", "\n### ")
+
+    def test_readme_widget_has_no_cjk(self):
+        self.assert_readme_no_cjk("\nThe widget is a dark card", "\n\n")
 
     def test_readme_alerts_has_no_cjk(self):
         self.assert_readme_no_cjk("\n## Alerts\n", "\n## ")
